@@ -12,7 +12,8 @@ internal sealed class MainForm : Form
 
     private readonly Panel sidebar = new Panel();
     private readonly Panel workspace = new Panel();
-    private readonly SegmentedTabs tabs = new SegmentedTabs("注册", "命令调试");
+    private readonly SegmentedTabs tabs = new SegmentedTabs("注册", "命令调试", "编译");
+    private readonly SegmentedTabs profiles = new SegmentedTabs("地址 1", "地址 2");
     private readonly Label addressCaption = new Label();
     private readonly TextField[] octets = new TextField[4];
     private readonly int[] dotLeft = new int[3];
@@ -24,6 +25,10 @@ internal sealed class MainForm : Form
     private readonly ActionButton cancelAddress = new ActionButton("取消", ButtonKind.Quiet);
     private readonly string[] savedOctets = new string[4];
     private string savedPort = string.Empty;
+    private readonly string[] profileIp = new string[2];
+    private readonly string[] profilePort = new string[2];
+    private int profile;
+    private bool applyingProfile;
     private bool editingAddress;
     private readonly ActionButton adminButton = new ActionButton("管理员登录", ButtonKind.Secondary);
     private readonly TextField passwordField = new TextField("管理员密码");
@@ -31,6 +36,7 @@ internal sealed class MainForm : Form
     private readonly ActionButton passwordCancel = new ActionButton("取消", ButtonKind.Quiet);
     private readonly RegisterPage registerPage;
     private readonly CommandPage commandPage;
+    private readonly BuildPage buildPage;
 
     private bool built;
     private bool restoring;
@@ -107,16 +113,19 @@ internal sealed class MainForm : Form
 
         registerPage = new RegisterPage(this);
         commandPage = new CommandPage(this);
+        buildPage = new BuildPage(this);
         BuildUi();
         LoadSettings();
         SetBusy(false);
-        SelectPage(initialPage == 1 ? 1 : 0, true);
+        SelectPage(initialPage >= 0 && initialPage <= 2 ? initialPage : 0, true);
     }
 
     /* 仅供测试程序驱动界面，发布版不会用到。 */
     internal RegisterPage Register { get { return registerPage; } }
 
     internal CommandPage Command { get { return commandPage; } }
+
+    internal BuildPage Build { get { return buildPage; } }
 
     internal void SetAddressForTest(string ip, int port)
     {
@@ -147,12 +156,11 @@ internal sealed class MainForm : Form
     {
         ip = null;
         port = 0;
-        string[] parts = new string[4];
         for (int i = 0; i < 4; i++)
         {
-            parts[i] = octets[i].Text.Trim();
+            string part = octets[i].Text.Trim();
             int value;
-            if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out value) ||
+            if (!int.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out value) ||
                 value < 0 || value > 255)
             {
                 octets[i].Invalid = true;
@@ -170,10 +178,44 @@ internal sealed class MainForm : Form
             portField.Edit.SelectAll();
             return false;
         }
-        ip = string.Join(".", parts);
+        ip = ReadAddressText();
         port = number;
         SaveSettings();
         return true;
+    }
+
+    /* 不弹错误、不聚焦的读取：切换档位和保存设置时用。 */
+    private bool ReadAddress(out string ip, out int port)
+    {
+        ip = null;
+        port = 0;
+        var parts = new string[4];
+        for (int i = 0; i < 4; i++)
+        {
+            parts[i] = octets[i].Text.Trim();
+            int value;
+            if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out value) ||
+                value < 0 || value > 255)
+            {
+                return false;
+            }
+        }
+        int number;
+        if (!int.TryParse(portField.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out number) ||
+            number < 1 || number > 65535)
+        {
+            return false;
+        }
+        ip = string.Join(".", parts);
+        port = number;
+        return true;
+    }
+
+    private string ReadAddressText()
+    {
+        var parts = new string[4];
+        for (int i = 0; i < 4; i++) { parts[i] = octets[i].Text.Trim(); }
+        return string.Join(".", parts);
     }
 
     internal void SetBusy(bool value)
@@ -181,6 +223,7 @@ internal sealed class MainForm : Form
         busy = value;
         registerPage.SetBusy(value);
         commandPage.SetBusy(value);
+        buildPage.SetBusy(value);
         editAddress.Enabled = !value;
         saveAddress.Enabled = !value;
         cancelAddress.Enabled = !value;
@@ -212,6 +255,10 @@ internal sealed class MainForm : Form
 
 
         tabs.SelectedIndexChanged += delegate { SelectPage(tabs.SelectedIndex); };
+        profiles.Vertical = false;
+        profiles.TabStop = false;
+        profiles.FocusOnClick = false;
+        profiles.SelectedIndexChanged += delegate { SwitchProfile(profiles.SelectedIndex); };
 
         addressCaption.Text = "控制器地址";
         addressCaption.ForeColor = Theme.TextSecondary;
@@ -264,13 +311,14 @@ internal sealed class MainForm : Form
 
         sidebar.Controls.AddRange(new Control[]
         {
-            tabs, addressCaption, portCaption, portField, editAddress, saveAddress, cancelAddress,
+            tabs, profiles, addressCaption, portCaption, portField, editAddress, saveAddress, cancelAddress,
             adminButton, passwordField, passwordOk, passwordCancel
         });
 
         workspace.BackColor = Theme.Body;
         workspace.Controls.Add(registerPage);
         workspace.Controls.Add(commandPage);
+        workspace.Controls.Add(buildPage);
 
         tabs.BringToFront();
         Controls.Add(workspace);
@@ -297,6 +345,7 @@ internal sealed class MainForm : Form
         MinimumSize = new Size(Theme.S(Theme.WindowMinWidth) + 16, Theme.S(Theme.WindowMinHeight) + 39);
         ApplyFonts();
         LayoutUi();
+        Invalidate(true);
 
     }
 
@@ -317,6 +366,13 @@ internal sealed class MainForm : Form
         Invalidate(true);
     }
 
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        LayoutUi();
+        Invalidate(true);
+    }
+
     private void LayoutUi()
     {
         if (!built || WindowState == FormWindowState.Minimized || ClientSize.Width <= 1 || ClientSize.Height <= 1) { return; }
@@ -329,8 +385,10 @@ internal sealed class MainForm : Form
         int captionHeight = Theme.Line(Theme.Caption12);
 
         tabs.Vertical = true;
-        tabs.SetBounds(Theme.S(Theme.Space3), Theme.S(Theme.Space4), width - Theme.S(Theme.Space3) * 2, Theme.S(Theme.SizeLg) * 2 + Theme.S(Theme.Space1));
-        addressCaption.SetBounds(pad, tabs.Bottom + Theme.S(Theme.Space6), inner - Theme.S(64), captionHeight);
+        tabs.SetBounds(Theme.S(Theme.Space3), Theme.S(Theme.Space4), width - Theme.S(Theme.Space3) * 2,
+            Theme.S(Theme.SizeLg) * 3 + Theme.S(Theme.Space1));
+        profiles.SetBounds(pad, tabs.Bottom + Theme.S(Theme.Space5), inner, Theme.S(Theme.SizeSm));
+        addressCaption.SetBounds(pad, profiles.Bottom + Theme.S(Theme.Space3), inner - Theme.S(64), captionHeight);
 
         int octetWidth = Theme.S(54);
         int dotWidth = Theme.S(8);
@@ -376,6 +434,7 @@ internal sealed class MainForm : Form
         workspace.SetBounds(sidebar.Width, 0, ClientSize.Width - sidebar.Width, ClientSize.Height);
         registerPage.SetBounds(0, 0, workspace.Width, workspace.Height);
         commandPage.SetBounds(0, 0, workspace.Width, workspace.Height);
+        buildPage.SetBounds(0, 0, workspace.Width, workspace.Height);
         Invalidate(true);
     }
     private void SelectPage(int index)
@@ -389,12 +448,19 @@ internal sealed class MainForm : Form
         if (tabs.SelectedIndex != index) { tabs.SelectedIndex = index; }
         registerPage.Visible = index == 0;
         commandPage.Visible = index == 1;
-        if (!startup) { if (index == 0) { registerPage.FocusFirst(); } else { commandPage.FocusFirst(); } }
+        buildPage.Visible = index == 2;
+        if (!startup)
+        {
+            if (index == 0) { registerPage.FocusFirst(); }
+            else if (index == 1) { commandPage.FocusFirst(); }
+            else { buildPage.FocusFirst(); }
+        }
     }
 
     // ---- 地址输入 -----------------------------------------------------------
     private void OnOctetChanged(object sender, EventArgs e)
     {
+        if (applyingProfile) { return; }
         for (int i = 0; i < 4; i++)
         {
             if (octets[i].Edit != sender) { continue; }
@@ -501,7 +567,9 @@ internal sealed class MainForm : Form
         string ip;
         int port;
         if (!TryGetAddress(out ip, out port)) { return; }
+        string before = string.Join(".", savedOctets) + ":" + savedPort;
         SetAddressEditing(false);
+        if (before != ip + ":" + port) { registerPage.ClearForAddressChange(); }
     }
 
     private void CancelAddressEdit()
@@ -516,24 +584,82 @@ internal sealed class MainForm : Form
         restoring = true;
         try
         {
-            string[] values = AddressSettings.Load();
-            string[] parts = values[0].Split('.');
-            for (int i = 0; i < 4; i++)
-            {
-                octets[i].Text = i < parts.Length ? parts[i] : "0";
-            }
-            portField.Text = values[1];
+            AddressSettings.Values values = AddressSettings.Load();
+            profileIp[0] = values.Ip1;
+            profilePort[0] = values.Port1;
+            profileIp[1] = values.Ip2;
+            profilePort[1] = values.Port2;
+            profile = values.Profile;
+            profiles.SelectedIndex = profile;
+            ApplyProfile();
             int parsed;
-            TimeoutMs = int.TryParse(values[2], out parsed) ? parsed : DefaultTimeout;
-            EncodingName = values[3];
+            TimeoutMs = int.TryParse(values.Timeout, out parsed) ? parsed : DefaultTimeout;
+            EncodingName = values.Encoding;
             // 记住上一次的登录状态：登录过就一直是管理员，直到点“退出管理”。
-            SetAdmin(values[4] == "1");
+            SetAdmin(values.Admin);
         }
         finally
         {
             restoring = false;
         }
     }
+
+    /* 把当前档位的地址写进输入框。整体赋值时屏蔽“输满自动前进”，否则焦点会被带到最后一格并全选。 */
+    private void ApplyProfile()
+    {
+        string ip = profileIp[profile] ?? "0.0.0.0";
+        string[] parts = ip.Split('.');
+        applyingProfile = true;
+        try
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                octets[i].Text = i < parts.Length ? parts[i] : "0";
+                octets[i].Invalid = false;
+            }
+            portField.Text = profilePort[profile] ?? "7625";
+            portField.Invalid = false;
+        }
+        finally
+        {
+            applyingProfile = false;
+        }
+    }
+
+    /* 切换「地址 1 / 地址 2」：先把当前输入框存回当前档，再载入另一档。 */
+    private void SwitchProfile(int index)
+    {
+        if (!built || restoring || busy || index < 0 || index > 1 || index == profile) { return; }
+        if (editingAddress) { CancelAddressEdit(); }
+        string ip;
+        int port;
+        if (ReadAddress(out ip, out port))
+        {
+            profileIp[profile] = ip;
+            profilePort[profile] = port.ToString(CultureInfo.InvariantCulture);
+        }
+        SuspendLayout();
+        try
+        {
+            profile = index;
+            ApplyProfile();
+            registerPage.ClearForAddressChange();
+        }
+        finally
+        {
+            ResumeLayout(false);
+        }
+        // 先让界面把新地址画出来，再落盘，避免切换瞬间有卡顿。
+        BeginInvoke((Action)SaveSettings);
+    }
+
+    internal void SwitchProfileForTest(int index)
+    {
+        profiles.SelectedIndex = index;
+        SwitchProfile(index);
+    }
+
+    internal int ActiveProfile { get { return profile; } }
 
     internal void SaveSettings()
     {
@@ -542,28 +668,21 @@ internal sealed class MainForm : Form
         {
             string ip;
             int port;
-            string[] parts = new string[4];
-            bool valid = true;
-            for (int i = 0; i < 4; i++)
+            if (!ReadAddress(out ip, out port)) { return; }
+            profileIp[profile] = ip;
+            profilePort[profile] = port.ToString(CultureInfo.InvariantCulture);
+            var values = new AddressSettings.Values
             {
-                parts[i] = octets[i].Text.Trim();
-                int value;
-                if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out value) ||
-                    value < 0 || value > 255)
-                {
-                    valid = false;
-                }
-            }
-            int number;
-            if (!int.TryParse(portField.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out number) ||
-                number < 1 || number > 65535)
-            {
-                valid = false;
-            }
-            if (!valid) { return; }
-            ip = string.Join(".", parts);
-            port = number;
-            AddressSettings.Save(System.Net.IPAddress.Parse(ip), port, timeoutMs, encodingName, admin);
+                Ip1 = profileIp[0] ?? "192.168.2.100",
+                Port1 = profilePort[0] ?? "7625",
+                Ip2 = profileIp[1] ?? "192.168.1.200",
+                Port2 = profilePort[1] ?? "7625",
+                Timeout = timeoutMs.ToString(CultureInfo.InvariantCulture),
+                Encoding = encodingName,
+                Admin = admin,
+                Profile = profile
+            };
+            AddressSettings.Save(values);
         }
         catch (Exception)
         {
@@ -615,12 +734,14 @@ internal sealed class MainForm : Form
         adminButton.Text = value ? "退出管理" : "管理员登录";
         registerPage.SetAdmin(value);
         commandPage.SetAdmin(value);
+        buildPage.SetAdmin(value);
         // 登录 / 退出管理后立刻记住状态；启动时恢复的那次不写回。
         if (built && !restoring) { SaveSettings(); }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        buildPage.StopWork();
         SaveSettings();
         base.OnFormClosing(e);
     }

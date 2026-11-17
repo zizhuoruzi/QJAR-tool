@@ -16,9 +16,20 @@ internal static class Program
         try
         {
             int page = 0;
+            bool guide = false;
             foreach (string arg in args)
             {
                 if (arg == "--page=command") { page = 1; }
+                if (arg == "--page=build") { page = 2; }
+                if (arg == "--guide") { guide = true; }
+            }
+            if (guide)
+            {
+                string project, distribution;
+                bool package;
+                BuildSettings.Load(out project, out distribution, out package);
+                Application.Run(new WslGuideForm(distribution));
+                return;
             }
             Application.Run(new MainForm(page));
         }

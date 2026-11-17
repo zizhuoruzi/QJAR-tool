@@ -1,0 +1,54 @@
+# 给 AI agent 的 WSL 环境搭建提示词
+
+公开下载，解压密码由发布者授权提供。此文档与工具内嵌模板同步生成。
+
+```text
+请把这台 Windows x64 电脑的 WSL 编译环境准备好，供 QJAR 工具“编译”页使用。目标发行版：Ubuntu。范围为同代际 32 位 xeno-x86 控制器工程（ETHERCAT_X86 / VIRTUAL_SERVO），不是 ARM 或实时运行环境。
+
+先只读检查已有环境。保留现有 WSL 发行版、编译器与数据，已有 /opt/qjar-build/ubuntu12-i686 时先验证，不覆盖、不删除。需要系统提权、修改 BIOS 或重启电脑时，按当前宿主的权限政策停下来交给我。只准备本机环境，不连接、升级或运行控制器。
+
+1. 检查 WSL 与磁盘。
+运行 wsl.exe -l -v，确认 Ubuntu 使用 WSL 2。没有 WSL 时再准备 wsl.exe --install --no-distribution；没有 Ubuntu 时再准备 wsl.exe --install -d Ubuntu。已有 WSL 1 发行版的转换需我确认后才执行。Windows 和 WSL 所在盘都要有足够空间，建议至少 5 GB 空闲。
+
+2. 从公开 Release 下载环境包，无需 GitHub 登录。
+Release：https://github.com/zizhuoruzi/qj-wsl-env/releases/tag/wsl-env-v1
+以下为 PowerShell 命令；每条外部命令执行后检查 $LASTEXITCODE，非 0 就停止该步骤，不要继续解压或恢复。
+
+$dir = Join-Path $env:USERPROFILE 'Downloads\qj-wsl-env'
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+curl.exe --fail --location --retry 2 --output "$dir\qj-wsl-env.7z" 'https://github.com/zizhuoruzi/qj-wsl-env/releases/download/wsl-env-v1/qj-wsl-env.7z'
+curl.exe --fail --location --output "$dir\SHA256SUMS.txt" 'https://github.com/zizhuoruzi/qj-wsl-env/releases/download/wsl-env-v1/SHA256SUMS.txt'
+(Get-FileHash -LiteralPath "$dir\qj-wsl-env.7z" -Algorithm SHA256).Hash
+
+环境包 SHA-256 必须为 e00dfcabc34243ee10072a0871a365b3b87ee47c44fede6808be6658703d3084，并与 SHA256SUMS.txt 一致；不一致就停止。若文件已存在且校验一致，可以复用。
+
+3. 由我授权提供解压密码。
+密码不在公共仓库或此提示词里。尚未取得密码时停在解压前向我索取；不要猜密码或从其他来源搜集。取得授权后，用已安装的 7-Zip 解压到 $dir。先查 Get-Command 7z.exe 或 $env:ProgramFiles\7-Zip\7z.exe；没有时先按本机政策安装 7-Zip。密码只用于本次解压，不写入脚本、源码、发布说明或最终报告。
+人手在终端执行时可以用以下命令，7-Zip 会询问密码；agent 非交互执行时用本次明确提供的密码作临时参数，不把密码常量写进文件。
+
+& "$env:ProgramFiles\7-Zip\7z.exe" x "$dir\qj-wsl-env.7z" "-o$dir"
+
+解压退出码必须为 0。目录应有三个环境 tar.gz、archive.sha256、bundle.sha256、manifest.json、prepare-rootfs.sh、build-controller.sh、README.md，不包含控制器工程源码或 controller-current.tar.gz。
+
+4. 恢复并安装构建入口。
+这版 prepare-rootfs.sh 自动使用自身目录，不用改 archive_dir，不依赖任何“405 工程”路径。先把 $dir 转成 WSL 路径，并核对每条命令退出码。
+
+$linuxDir = (wsl.exe -d Ubuntu --exec wslpath -u $dir).Trim()
+wsl.exe -d Ubuntu -u root --exec bash "$linuxDir/prepare-rootfs.sh"
+
+恢复脚本会先核对内部 SHA-256，在临时目录解压，编译并运行 32 位 C++ 程序，全部通过后才移入 /opt/qjar-build/ubuntu12-i686。目录已存在会拒绝覆盖：此时验证已有环境并汇报，不为了继续而删目录。
+包里已经带构建脚本，不用另找控制器工程仓库：确认恢复或已有环境正常后执行
+
+wsl.exe -d Ubuntu -u root --exec install -m 755 "$linuxDir/build-controller.sh" /opt/qjar-build/build-controller.sh
+
+5. 验证并汇报。
+运行下面三条，均应退出 0；同时核对安装入口与解压出来的 build-controller.sh 的 SHA-256 相同。
+
+wsl.exe -d Ubuntu -u root --exec test -x /opt/qjar-build/build-controller.sh
+wsl.exe -d Ubuntu -u root --exec test -f /opt/qjar-build/ubuntu12-i686/lib/modules/3.14.17-xenomai/build/Module.symvers
+wsl.exe -d Ubuntu -u root --exec setarch linux32 chroot /opt/qjar-build/ubuntu12-i686 /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/gcc-4.6 --version
+
+最终简要列出：发行版名和 WSL 版本、下载文件大小与 SHA-256、校验/解压/恢复退出码、GCC 版本、目标内核文件是否存在、构建入口哈希，以及是否还需要我重启或操作 BIOS。保留可复查的失败日志，不用“环境应该好了”替代验证。
+
+chroot 只用于固定旧工具链路径，不是安全沙箱；以后只编译可信的工程。额外库/SDK 由具体工程提供。此次不执行 make clean/install/up，不自动编译、运行或部署控制器。
+```

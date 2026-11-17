@@ -764,6 +764,9 @@ internal sealed class SegmentedTabs : Control
 
     internal event EventHandler SelectedIndexChanged;
 
+    /* 鼠标为主的选择控件不要抢焦点：否则点一下就会留下焦点框。 */
+    internal bool FocusOnClick { get; set; } = true;
+
     internal bool Vertical
     {
         get { return vertical; }
@@ -820,7 +823,7 @@ internal sealed class SegmentedTabs : Control
         int index = IndexAt(e.Location);
         if (index >= 0)
         {
-            Focus();
+            if (FocusOnClick) { Focus(); }
             SelectedIndex = index;
         }
         base.OnMouseDown(e);
@@ -920,7 +923,7 @@ internal sealed class SegmentedTabs : Control
         }
     }
 
-    /* 两个内置图标：0 = 注册（方框加号），1 = 命令调试（提示符）。 */
+    /* 三个内置图标：0 = 注册（方框加号），1 = 命令调试（提示符），2 = 编译（齿轮）。 */
     private void DrawIcon(Graphics g, Rectangle box, int index, Color color)
     {
         var old = g.SmoothingMode;
@@ -938,6 +941,28 @@ internal sealed class SegmentedTabs : Control
                 int arm = Math.Max(2, frame.Width / 4);
                 g.DrawLine(pen, cx - arm, cy, cx + arm, cy);
                 g.DrawLine(pen, cx, cy - arm, cx, cy + arm);
+            }
+            else if (index == 2)
+            {
+                // 代码括号 </>：编译页的意象，和命令调试的提示符区分开。
+                int top = frame.Y + Theme.S(2);
+                int bottom = frame.Bottom - Theme.S(2);
+                int midY = (top + bottom) / 2;
+                int arm = Math.Max(2, frame.Width / 5);
+                g.DrawLines(pen, new[]
+                {
+                    new Point(frame.X + arm + Theme.S(2), top),
+                    new Point(frame.X + Theme.S(1), midY),
+                    new Point(frame.X + arm + Theme.S(2), bottom)
+                });
+                g.DrawLines(pen, new[]
+                {
+                    new Point(frame.Right - arm - Theme.S(2), top),
+                    new Point(frame.Right - Theme.S(1), midY),
+                    new Point(frame.Right - arm - Theme.S(2), bottom)
+                });
+                g.DrawLine(pen, frame.X + frame.Width / 2 + Theme.S(1), top,
+                    frame.X + frame.Width / 2 - Theme.S(1), bottom);
             }
             else
             {

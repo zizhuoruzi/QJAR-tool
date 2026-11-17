@@ -214,6 +214,7 @@ internal static class Theme
     internal static GraphicsPath Round(Rectangle bounds, int radius)
     {
         var path = new GraphicsPath();
+        if (bounds.Width <= 0 || bounds.Height <= 0) { return path; }
         int d = Math.Max(1, radius * 2);
         if (radius <= 0)
         {
@@ -231,6 +232,7 @@ internal static class Theme
 
     internal static void Fill(Graphics g, Rectangle bounds, int radius, Color color)
     {
+        if (bounds.Width <= 0 || bounds.Height <= 0) { return; }
         var old = g.SmoothingMode;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         using (GraphicsPath path = Round(bounds, radius))
@@ -243,6 +245,7 @@ internal static class Theme
 
     internal static void Stroke(Graphics g, Rectangle bounds, int radius, Color color, float width)
     {
+        if (bounds.Width <= 1 || bounds.Height <= 1) { return; }
         var old = g.SmoothingMode;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         Rectangle edge = new Rectangle(bounds.X, bounds.Y, bounds.Width - 1, bounds.Height - 1);
@@ -306,4 +309,7 @@ internal static class NativeMethods
     [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     internal static extern bool SystemParametersInfo(int action, int param, out bool value, int update);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    internal static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wparam, IntPtr lparam);
 }

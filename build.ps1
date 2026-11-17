@@ -13,6 +13,12 @@ $coreDir = Join-Path $projectDir 'src\core'
 $uiDir = Join-Path $projectDir 'src\ui'
 $testDir = Join-Path $projectDir 'Tests'
 New-Item -ItemType Directory -Force -Path $buildDir, $distDir | Out-Null
+$guideResource = "/resource:$projectDir\Assets\wsl-agent-prompt.txt,wsl-agent-prompt.txt"
+$promptTemplate = [System.IO.File]::ReadAllText((Join-Path $projectDir 'Assets\wsl-agent-prompt.txt'), [System.Text.Encoding]::UTF8)
+$prompt = $promptTemplate.Replace('{{DISTRO}}', 'Ubuntu')
+$promptDoc = "# 给 AI agent 的 WSL 环境搭建提示词`n`n公开下载，解压密码由发布者授权提供。此文档与工具内嵌模板同步生成。`n`n" + '```text' + "`n" + $prompt + '```' + "`n"
+[System.IO.File]::WriteAllText((Join-Path $projectDir 'Docs\agent-wsl-setup.md'), $promptDoc, (New-Object System.Text.UTF8Encoding($false)))
+
 
 # --- Visual C++ 环境 -------------------------------------------------------
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -60,6 +66,7 @@ try {
         /win32icon:"$projectDir\Assets\registration-tool.ico" `
         /resource:"$projectDir\Assets\QJToolDisplay.otf,QJToolDisplay.otf" `
         /resource:"$projectDir\Assets\registration-tool.ico,registration-tool.ico" `
+        $guideResource `
         $sources
     if ($LASTEXITCODE -ne 0) { throw 'QJAR工具.exe 编译失败。' }
     Copy-Item -LiteralPath (Join-Path $uiDir 'QJAR.exe.config') -Destination "$distDir\QJAR工具.exe.config" -Force
@@ -72,7 +79,7 @@ try {
         & $compiler /nologo /codepage:65001 /langversion:latest /target:exe /platform:x64 `
             "/out:$buildDir\UiCheck.exe" `
             /reference:System.Windows.Forms.dll /reference:System.Drawing.dll `
-            (Join-Path $testDir 'UiHarness.cs') (Join-Path $testDir 'MockController.cs') $appSources
+            $guideResource (Join-Path $testDir 'UiHarness.cs') (Join-Path $testDir 'MockController.cs') $appSources
         if ($LASTEXITCODE -ne 0) { throw '界面回归程序编译失败。' }
 
         & $compiler /nologo /codepage:65001 /langversion:latest /target:exe /platform:x64 `
@@ -82,6 +89,26 @@ try {
 
         & cl.exe @common (Join-Path $testDir 'FakeSsh.c') "/Fe$buildDir\FakeSsh.exe" /link /SUBSYSTEM:CONSOLE
         if ($LASTEXITCODE -ne 0) { throw 'SSH 测试替身编译失败。' }
+
+        & $compiler /nologo /codepage:65001 /langversion:latest /target:exe /platform:x64 `
+            "/out:$buildDir\BuildCheck.exe" `
+            (Join-Path $testDir 'BuildCheck.cs') (Join-Path $uiDir 'ProjectMakefile.cs')
+        if ($LASTEXITCODE -ne 0) { throw 'Makefile 读写测试程序编译失败。' }
+        & "$buildDir\BuildCheck.exe"
+        if ($LASTEXITCODE -ne 0) { throw 'Makefile 读写检查失败。' }
+
+        & $compiler /nologo /codepage:65001 /langversion:latest /target:exe /platform:x64 `
+            "/out:$buildDir\UiPaintCheck.exe" `
+            /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
+            (Join-Path $testDir 'UiPaintCheck.cs') (Join-Path $uiDir 'Theme.cs')
+        if ($LASTEXITCODE -ne 0) { throw '绘制边界检查编译失败。' }
+        & "$buildDir\UiPaintCheck.exe"
+        if ($LASTEXITCODE -ne 0) { throw '绘制边界检查失败。' }
+
+        & $compiler /nologo /codepage:65001 /langversion:latest /target:exe /platform:x64 `
+            "/out:$buildDir\BuildRun.exe" `
+            $guideResource (Join-Path $testDir 'BuildRun.cs') $appSources
+        if ($LASTEXITCODE -ne 0) { throw '编译页集成检查程序编译失败。' }
 
         Copy-Item -LiteralPath "$distDir\QJCore.dll" -Destination $buildDir -Force
         & "$buildDir\Smoke.exe"
@@ -93,7 +120,7 @@ try {
             "/out:$buildDir\RestoreCheck.exe" /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
             (Join-Path $testDir 'RestoreCheck.cs')
         if ($LASTEXITCODE -ne 0) { throw '恢复首帧检查编译失败。' }
-        foreach ($page in @('register', 'command')) {
+        foreach ($page in @('register', 'command', 'build')) {
             & "$buildDir\RestoreCheck.exe" "$distDir\QJAR工具.exe" "$buildDir\restore-$page" 5 $page
             if ($LASTEXITCODE -ne 0) { throw "恢复首帧检查失败：$page" }
         }
@@ -110,12 +137,23 @@ try {
         New-Item -ItemType Directory -Path $stage | Out-Null
         Copy-Item -LiteralPath "$distDir\QJAR工具.exe", "$distDir\QJCore.dll", "$distDir\QJAR工具.exe.config" -Destination $stage
         Copy-Item -LiteralPath (Join-Path $projectDir 'Docs\使用说明.txt') -Destination $stage
+        Copy-Item -LiteralPath (Join-Path $projectDir 'Docs\agent-wsl-setup.md') -Destination $stage
         $exeHash = (Get-FileHash -LiteralPath (Join-Path $stage 'QJAR工具.exe') -Algorithm SHA256).Hash
         $dllHash = (Get-FileHash -LiteralPath (Join-Path $stage 'QJCore.dll') -Algorithm SHA256).Hash
         @("SHA256 (QJAR工具.exe) = $exeHash", "SHA256 (QJCore.dll) = $dllHash") |
             Set-Content -LiteralPath (Join-Path $stage 'SHA256.txt') -Encoding utf8
         Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
         Write-Host "已打包：$zip"
+
+        # dist 只保留当前版本的目录和压缩包，避免历史版本越堆越多。
+        $staleDirs = @(Get-ChildItem -LiteralPath $distDir -Directory -Filter 'QJAR工具-v*' |
+            Where-Object { $_.Name -ne $name })
+        $staleZips = @(Get-ChildItem -LiteralPath $distDir -File -Filter 'QJAR工具-v*.zip' |
+            Where-Object { $_.Name -ne "$name.zip" })
+        foreach ($item in $staleDirs + $staleZips) {
+            Write-Host "清理旧版本：$($item.Name)"
+            Remove-Item -LiteralPath $item.FullName -Recurse -Force
+        }
     }
 }
 finally {

@@ -108,6 +108,23 @@ internal sealed class RegisterPage : Panel
         cancel.Enabled = busy;
     }
 
+    /* 换了一台控制器（切换地址档位或手改地址）后清掉上一台设备的状态，
+       避免把旧序列号、旧授权状态当成当前地址的结果。 */
+    internal void ClearForAddressChange()
+    {
+        if (running) { return; }
+        serialValue.Text = "—";
+        daysValue.Text = "—";
+        statePill.Caption = "等待查询";
+        statePill.Tone = Tone.Neutral;
+        progress.Value = 0;
+        progress.Tone = Tone.Neutral;
+        progressText.Text = "等待操作";
+        progressPercent.Text = "0%";
+        HideBanner();
+        log.Clear();
+    }
+
     // ---- 布局 ---------------------------------------------------------------
     protected override void OnResize(EventArgs e)
     {
