@@ -38,8 +38,52 @@ internal sealed class MainForm : Form
     private bool admin;
     private bool logging;
     private bool busy;
+    private bool minimized;
+    private bool restoreCloaked;
     private int timeoutMs = DefaultTimeout;
     private string encodingName = "UTF-8";
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool RedrawWindow(IntPtr window, IntPtr rect, IntPtr region, uint flags);
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")]
+    private static extern bool GdiFlush();
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr window);
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
+
+    private bool Cloak(bool hidden)
+    {
+        int value = hidden ? 1 : 0;
+        return DwmSetWindowAttribute(Handle, 13, ref value, sizeof(int)) == 0;
+    }
+
+    private void PaintFrame()
+    {
+        // 系统缩放动画读取窗口缓存前，先完成整棵子窗口的绘制与 GDI 提交。
+        RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero, 0x0185);
+        GdiFlush();
+    }
+
+    protected override void WndProc(ref Message message)
+    {
+        if (built && minimized && !restoreCloaked && message.Msg == 0x0046 && !IsIconic(Handle))
+        { restoreCloaked = Cloak(true); }
+        try
+        {
+            base.WndProc(ref message);
+            if (restoreCloaked && message.Msg == 0x0047 && !IsIconic(Handle))
+            {
+                try { PaintFrame(); }
+                finally { Cloak(false); restoreCloaked = false; minimized = false; }
+            }
+        }
+        catch
+        {
+            if (restoreCloaked) { Cloak(false); restoreCloaked = false; }
+            throw;
+        }
+    }
 
     internal MainForm(int initialPage)
     {
@@ -50,7 +94,8 @@ internal sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(Theme.S(Theme.WindowWidth), Theme.S(Theme.WindowHeight));
         MinimumSize = new Size(Theme.S(Theme.WindowMinWidth) + 16, Theme.S(Theme.WindowMinHeight) + 39);
-        DoubleBuffered = true;
+        // 自绘控件各自缓冲，主窗体保留完整的原生窗口画面供恢复动画使用。
+        DoubleBuffered = false;
         try
         {
             using (System.IO.Stream stream = typeof(MainForm).Assembly.GetManifestResourceStream("registration-tool.ico"))
@@ -144,7 +189,6 @@ internal sealed class MainForm : Form
     // ---- 界面搭建 -----------------------------------------------------------
     private void BuildUi()
     {
-        sidebar.Dock = DockStyle.Left;
         sidebar.Width = Theme.S(Theme.SidebarWidth);
         sidebar.BackColor = Theme.Surface;
         sidebar.Paint += delegate(object sender, PaintEventArgs e)
@@ -224,7 +268,6 @@ internal sealed class MainForm : Form
             adminButton, passwordField, passwordOk, passwordCancel
         });
 
-        workspace.Dock = DockStyle.Fill;
         workspace.BackColor = Theme.Body;
         workspace.Controls.Add(registerPage);
         workspace.Controls.Add(commandPage);
@@ -269,15 +312,18 @@ internal sealed class MainForm : Form
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
+        if (WindowState == FormWindowState.Minimized) { minimized = true; return; }
         LayoutUi();
+        Invalidate(true);
     }
 
     private void LayoutUi()
     {
-        if (!built) { return; }
+        if (!built || WindowState == FormWindowState.Minimized || ClientSize.Width <= 1 || ClientSize.Height <= 1) { return; }
         int pad = Theme.S(Theme.Space6);
         int width = Theme.S(Theme.SidebarWidth);
-        sidebar.Width = width;
+        // 统一手动布局，最小化时保留子窗口尺寸与绘图缓存。
+        sidebar.SetBounds(0, 0, width, ClientSize.Height);
         int inner = width - pad * 2;
         int bar = Theme.S(Theme.SizeLg);
         int captionHeight = Theme.Line(Theme.Caption12);

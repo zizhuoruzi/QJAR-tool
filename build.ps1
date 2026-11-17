@@ -88,11 +88,20 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '通信冒烟测试失败。' }
         & "$buildDir\UiCheck.exe"
         if ($LASTEXITCODE -ne 0) { throw '界面回归失败。' }
+
+        & $compiler /nologo /codepage:65001 /langversion:latest /target:exe /platform:x64 `
+            "/out:$buildDir\RestoreCheck.exe" /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
+            (Join-Path $testDir 'RestoreCheck.cs')
+        if ($LASTEXITCODE -ne 0) { throw '恢复首帧检查编译失败。' }
+        foreach ($page in @('register', 'command')) {
+            & "$buildDir\RestoreCheck.exe" "$distDir\QJAR工具.exe" "$buildDir\restore-$page" 5 $page
+            if ($LASTEXITCODE -ne 0) { throw "恢复首帧检查失败：$page" }
+        }
     }
 
     # --- 打包 --------------------------------------------------------------
     if ($Package) {
-        $version = '1.0.0'
+        $version = '1.1.14'
         $name = "QJAR工具-v$version"
         $stage = Join-Path $distDir $name
         $zip = Join-Path $distDir "$name.zip"
