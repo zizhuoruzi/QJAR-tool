@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="24 27 132 132" fill="none">
+  <title>注册工具 · 猴子图标</title>
+  <g stroke="#111" stroke-linecap="round" stroke-linejoin="round">
+    <g id="body">
+      <path d="M84 119C77 126 73 138 75 152H133C133 138 126 121 114 115Z" fill="#fff" stroke="none"/>
+      <path d="M82 122C75 131 74 141 75 152M119 117C128 126 132 139 133 151" stroke-width="1.65"/>
+      <path d="M88 124C85 132 85 143 86 151L91 152L89 145L93 146L90 139L93 139L90 125Z" fill="#111" stroke="none"/>
+      <path d="M111 122C117 131 120 141 121 151" stroke-width="2.5"/>
+      <circle cx="105.2" cy="128.1" r=".65" fill="#111" stroke="none"/>
+      <circle cx="107.8" cy="131" r=".65" fill="#111" stroke="none"/>
+    </g>
+    <g id="ears" stroke-width="1.5">
+      <path d="M55 80C43 75 32 85 34 98C35 109 45 115 57 108Z" fill="#fff"/>
+      <path d="M48 84C39 82 35 92 39 100C42 108 49 107 52 103C46 103 43 98 45 93C46 91 48 90 50 90Z" fill="#111" stroke="none"/>
+      <path d="M41 101C40 97 41 93 43 92" stroke="#fff" stroke-width="1.3"/>
+      <path d="M122 69C134 60 145 66 147 77C150 89 140 101 127 98Z" fill="#fff"/>
+      <path d="M128 73C137 67 143 73 143 81C142 89 136 94 129 92C132 86 130 79 128 73Z" fill="#111" stroke="none"/>
+      <path d="M139 75C142 80 141 85 138 88" stroke="#fff" stroke-width="1.2"/>
+    </g>
+    <g id="head" stroke-width="1.5">
+      <path d="M61 119C51 115 49 104 53 94C49 87 49 78 54 69C58 61 64 56 73 54C70 50 73 46 78 49C76 42 85 39 92 34C95 39 85 44 88 48C95 43 101 47 99 52C112 50 123 59 127 69C132 76 130 83 127 89C134 100 132 109 122 115C106 125 79 130 64 123C60 122 57 118 57 115" fill="#fff"/>
+      <path d="M65 85C62 78 65 71 72 68C78 65 84 69 88 71C94 62 103 60 110 65C116 68 118 75 116 81C115 85 121 90 120 95C119 98 124 102 120 107C115 113 100 117 89 119C76 121 64 117 60 111C56 106 62 101 63 97C64 94 59 89 65 85Z" fill="#fff" stroke-width="1.35"/>
+      <path d="M58 113C63 125 83 130 104 122" stroke-width="1.25"/>
+      <path d="M110.2 56.2L110.8 56.9M115.3 59.4L115.8 60" stroke-width="1.2"/>
+    </g>
+    <g id="face" stroke="none" fill="#111">
+      <ellipse cx="80.1" cy="89.1" rx="5.8" ry="6.5" transform="rotate(-21 80.1 89.1)"/>
+      <path d="M77.5 84.9C75.4 87 76.6 91.4 79.6 92.7C77.2 91.9 76.1 88 77.5 84.9Z" fill="#fff"/>
+      <ellipse cx="98.4" cy="85.7" rx="6.3" ry="6.8" transform="rotate(-18 98.4 85.7)"/>
+      <ellipse cx="96.5" cy="82.9" rx="1.75" ry="2.45" transform="rotate(-30 96.5 82.9)" fill="#fff"/>
+      <ellipse cx="91.8" cy="98.3" rx="4.1" ry="2.75" transform="rotate(-13 91.8 98.3)"/>
+    </g>
+    <path id="accent" d="M56 46C53 40 50 37 46 35C46 41 47 46 49 49C43 49 39 50 35 53C41 57 46 58 51 57" stroke-width="3.8"/>
+  </g>
+</svg>
