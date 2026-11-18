@@ -2,7 +2,8 @@
 param(
     [switch]$CoreOnly,
     [switch]$Tests,
-    [switch]$Package
+    [switch]$Package,
+    [switch]$RestoreCheck
 )
 
 $ErrorActionPreference = 'Stop'
@@ -120,9 +121,12 @@ try {
             "/out:$buildDir\RestoreCheck.exe" /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
             (Join-Path $testDir 'RestoreCheck.cs')
         if ($LASTEXITCODE -ne 0) { throw '恢复首帧检查编译失败。' }
-        foreach ($page in @('register', 'command', 'build')) {
-            & "$buildDir\RestoreCheck.exe" "$distDir\QJAR工具.exe" "$buildDir\restore-$page" 5 $page
-            if ($LASTEXITCODE -ne 0) { throw "恢复首帧检查失败：$page" }
+        if ($RestoreCheck) {
+            # 需要已解锁的交互桌面，且会真实抢占前台窗口；默认不跑，避免阻塞打包。
+            foreach ($page in @('register', 'command', 'build')) {
+                & "$buildDir\RestoreCheck.exe" "$distDir\QJAR工具.exe" "$buildDir\restore-$page" 5 $page
+                if ($LASTEXITCODE -ne 0) { throw "恢复首帧检查失败：$page" }
+            }
         }
     }
 
