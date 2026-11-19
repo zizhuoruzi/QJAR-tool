@@ -1020,13 +1020,7 @@ internal sealed class SegmentedTabs : Control
 
     private void PaintTab(Graphics g, Rectangle rect, int index, bool isSelected)
     {
-        if (isSelected)
-        {
-            Theme.Fill(g, new Rectangle(rect.X + Theme.S(4), rect.Y + Theme.S(2),
-                rect.Width - Theme.S(8), rect.Height - Theme.S(6)), Theme.S(Theme.RadiusElement),
-                Theme.AccentMuted);
-        }
-        else if (index == hovered)
+        if (!isSelected && index == hovered)
         {
             Theme.Fill(g, new Rectangle(rect.X + Theme.S(4), rect.Y + Theme.S(2),
                 rect.Width - Theme.S(8), rect.Height - Theme.S(6)), Theme.S(Theme.RadiusElement),

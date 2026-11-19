@@ -20,6 +20,7 @@ internal sealed class MainForm : Form
     private readonly int[] dotLeft = new int[3];
     private int dotTop;
     private readonly TextField portField = new TextField("端口");
+    private readonly Label ipCaption = new Label();
     private readonly Label portCaption = new Label();
     private readonly ActionButton editAddress = new ActionButton("修改", ButtonKind.Secondary);
     private readonly ActionButton saveAddress = new ActionButton("保存", ButtonKind.Primary);
@@ -308,6 +309,9 @@ internal sealed class MainForm : Form
             octets[i] = field;
             sidebar.Controls.Add(field);
         }
+        ipCaption.Text = "IP 地址";
+        ipCaption.ForeColor = Theme.TextSecondary;
+        ipCaption.BackColor = Color.Transparent;
         portCaption.Text = "控制器端口";
         portCaption.ForeColor = Theme.TextSecondary;
         portCaption.BackColor = Color.Transparent;
@@ -348,7 +352,7 @@ internal sealed class MainForm : Form
 
         sidebar.Controls.AddRange(new Control[]
         {
-            tabs, profiles, portCaption, portField, editAddress, saveAddress, cancelAddress,
+            tabs, profiles, ipCaption, portCaption, portField, editAddress, saveAddress, cancelAddress,
             adminButton, passwordField, passwordOk, passwordCancel
         });
 
@@ -374,7 +378,7 @@ internal sealed class MainForm : Form
 
     private void ApplyFonts()
     {
-        portCaption.Font = Theme.Caption12;
+        ipCaption.Font = portCaption.Font = Theme.Caption12;
     }
 
     protected override void OnLoad(EventArgs e)
@@ -431,7 +435,12 @@ internal sealed class MainForm : Form
 
         int octetWidth = Theme.S(54);
         int dotWidth = Theme.S(8);
-        int top = profiles.Bottom + Theme.S(Theme.Space3);
+        int small = Theme.S(Theme.SizeSm);
+        int editWidth = Theme.S(52);
+        int addressTop = profiles.Bottom + Theme.S(Theme.Space2);
+        editAddress.SetBounds(width - pad - editWidth, addressTop, editWidth, small);
+        ipCaption.SetBounds(pad, addressTop + (small - captionHeight) / 2, inner - editWidth, captionHeight);
+        int top = editAddress.Bottom + Theme.S(Theme.Space2);
         int x = pad;
         dotTop = top;
         for (int i = 0; i < 4; i++)
@@ -447,11 +456,7 @@ internal sealed class MainForm : Form
         portCaption.SetBounds(pad, octets[0].Bottom + Theme.S(Theme.Space3), inner, captionHeight);
         portField.SetBounds(pad, portCaption.Bottom, inner, Theme.S(Theme.SizeMd));
 
-        int small = Theme.S(Theme.SizeSm);
-        int editWidth = Theme.S(52);
-
         int actionTop = portField.Bottom + Theme.S(Theme.Space2);
-        editAddress.SetBounds(width - pad - editWidth, actionTop, editWidth, small);
         int saveWidth = Theme.S(72);
         int cancelWidth = Theme.S(60);
         saveAddress.SetBounds(width - pad - saveWidth, actionTop, saveWidth, small);

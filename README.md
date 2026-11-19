@@ -33,7 +33,7 @@ build.ps1   编译 → 测试 → 打包
 ```powershell
 .\build.ps1                 # 编译 QJCore.dll + QJAR工具.exe
 .\build.ps1 -Tests          # 额外编译并运行通信冒烟与界面回归
-.\build.ps1 -Tests -Package # 再打一个 dist\QJAR工具-v1.1.18.zip
+.\build.ps1 -Tests -Package # 再打一个 dist\QJAR工具-v1.1.19.zip
 ```
 
 编译页依赖本机的 WSL 2 与 `/opt/qjar-build` 环境。环境包可从[公开 Release](https://github.com/zizhuoruzi/qj-wsl-env/releases/tag/wsl-env-v1)下载，解压密码由发布者授权提供。`QJAR工具.exe --guide` 打开环境准备指引；提示词单一来源为 [wsl-agent-prompt.txt](<Assets/wsl-agent-prompt.txt>)，构建时同步生成 [agent-wsl-setup.md](<Docs/agent-wsl-setup.md>)。选择工程目录会记住上次位置，并在下三级内查找唯一工程，多个候选不会自动选中。
