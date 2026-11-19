@@ -21,7 +21,6 @@ internal sealed class RegisterPage : Panel
     private readonly ActionButton register = new ActionButton("注册设备", ButtonKind.Primary);
     private readonly Card pendantCard = new Card("示教器");
     private readonly SegmentedTabs pendantMode = new SegmentedTabs("实体", "本机虚拟") { Vertical = false };
-    private readonly Label physicalAddress = Caption("192.168.1.200");
     private readonly TextField pendantPath = new TextField("选择 rbt_gui.exe");
     private readonly ActionButton browsePendant = new ActionButton("浏览", ButtonKind.Secondary);
     private readonly ActionButton openPendant = new ActionButton("打开示教器", ButtonKind.Secondary);
@@ -58,7 +57,7 @@ internal sealed class RegisterPage : Panel
         openPendant.Click += async delegate { await TogglePendant(); };
         pendantMode.SelectedIndexChanged += delegate { LayoutPage(); UpdatePendantButtons(); shell.SavePreferences(); };
         VisibleChanged += delegate { if (Visible) { UpdatePendantButtons(); } };
-        pendantCard.Controls.AddRange(new Control[] { pendantMode, physicalAddress, pendantPath, browsePendant, openPendant });
+        pendantCard.Controls.AddRange(new Control[] { pendantMode, pendantPath, browsePendant, openPendant });
         cancel.Click += delegate { CancelOperation(); };
         clearLog.Click += delegate { log.Clear(); };
         exportLog.Click += delegate { ExportLog(); };
@@ -175,8 +174,6 @@ internal sealed class RegisterPage : Panel
         pendantCard.SetBounds(pad, deviceCard.Bottom + gap, width,
             pendantTop + (VirtualPendant ? bar * 2 + Theme.S(18) : bar + Theme.S(14)));
         pendantMode.SetBounds(cardPad, pendantTop, Theme.S(165), bar);
-        physicalAddress.SetBounds(pendantMode.Right + Theme.S(10), pendantTop, Theme.S(120), bar);
-        physicalAddress.Visible = !VirtualPendant;
         pendantPath.Visible = browsePendant.Visible = openPendant.Visible = VirtualPendant;
         int pathTop = pendantMode.Bottom + Theme.S(6);
         openPendant.SetBounds(width - cardPad - Theme.S(109), pathTop, Theme.S(109), bar);

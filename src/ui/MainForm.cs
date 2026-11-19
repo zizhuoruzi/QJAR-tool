@@ -498,10 +498,6 @@ internal sealed class MainForm : Form
             buildWorkspace.Visible = true;
         }
         upgradePage.Visible = index == 3;
-        if (index == 3)
-        {
-            upgradePage.RefreshAddress();
-        }
         if (!startup)
         {
             if (index == 0) { registerPage.FocusFirst(); }
@@ -529,14 +525,12 @@ internal sealed class MainForm : Form
     private void UpdateTargets()
     {
         remoteBuild.SetHost(profileIp[1]);
-        upgradePage.RefreshAddress();
     }
 
     // ---- 地址输入 -----------------------------------------------------------
     private void OnOctetChanged(object sender, EventArgs e)
     {
         if (applyingProfile) { return; }
-        upgradePage.RefreshAddress();
         for (int i = 0; i < 4; i++)
         {
             if (octets[i].Edit != sender) { continue; }
@@ -731,7 +725,6 @@ internal sealed class MainForm : Form
         {
             profile = index;
             ApplyProfile();
-            upgradePage.RefreshAddress();
             registerPage.ClearForAddressChange();
         }
         finally

@@ -10,8 +10,6 @@ internal sealed class UpgradePage : Panel
     private readonly MainForm shell;
     private readonly Card controllerCard = new Card("控制器升级");
     private readonly Card pendantCard = new Card("示教器升级");
-    private readonly Label controllerCaption = Caption("");
-    private readonly Label pendantCaption = Caption(SshUpgrade.DefaultPendantIp);
     private readonly TextField controllerFile = new TextField("选择或拖入控制器升级包");
     private readonly TextField pendantFile = new TextField("选择或拖入示教器升级包");
     private readonly ActionButton chooseController = new ActionButton("选包", ButtonKind.Secondary);
@@ -37,11 +35,11 @@ internal sealed class UpgradePage : Panel
 
         controllerCard.Controls.AddRange(new Control[]
         {
-            controllerCaption, controllerFile, chooseController, uploadController
+            controllerFile, chooseController, uploadController
         });
         pendantCard.Controls.AddRange(new Control[]
         {
-            pendantCaption, pendantFile, choosePendant, uploadPendant
+            pendantFile, choosePendant, uploadPendant
         });
         logCard.Controls.AddRange(new Control[] { log, exportLog, clearLog, state, progress });
         Controls.AddRange(new Control[] { controllerCard, pendantCard, logCard });
@@ -65,8 +63,6 @@ internal sealed class UpgradePage : Panel
     }
 
     internal void FocusFirst() { chooseController.Focus(); }
-
-    internal void RefreshAddress() { controllerCaption.Text = shell.ControllerIp; }
 
     internal void SetBusy(bool value)
     {
@@ -283,12 +279,12 @@ internal sealed class UpgradePage : Panel
         int gap = Theme.S(Theme.Space4);
         int inset = Theme.S(Theme.Space5);
         int width = Math.Max(Theme.S(360), Width - pad * 2);
-        int height = Theme.S(174);
+        int height = Theme.S(174 - Theme.SizeMd);
         int leftWidth = (width - gap) / 2;
         controllerCard.SetBounds(pad, pad, leftWidth, height);
         pendantCard.SetBounds(controllerCard.Right + gap, pad, width - leftWidth - gap, height);
-        LayoutTarget(controllerCard, controllerCaption, controllerFile, chooseController, uploadController);
-        LayoutTarget(pendantCard, pendantCaption, pendantFile, choosePendant, uploadPendant);
+        LayoutTarget(controllerCard, controllerFile, chooseController, uploadController);
+        LayoutTarget(pendantCard, pendantFile, choosePendant, uploadPendant);
 
         int top = pendantCard.Bottom + gap;
         logCard.SetBounds(pad, top, width, Math.Max(Theme.S(100), Height - pad - top));
@@ -301,29 +297,16 @@ internal sealed class UpgradePage : Panel
         log.SetBounds(inset, logY, width - inset * 2, Math.Max(Theme.S(35), logCard.Height - logY - inset));
     }
 
-    private static void LayoutTarget(Card card, Label caption, TextField path,
+    private static void LayoutTarget(Card card, TextField path,
         ActionButton choose, ActionButton upload)
     {
         int pad = Theme.S(Theme.Space5);
         int gap = Theme.S(Theme.Space2);
         int height = Theme.S(Theme.SizeMd);
-        int top = card.ContentTop;
-        caption.SetBounds(pad, top, Theme.S(180), height);
         int right = card.Width - pad;
-        choose.SetBounds(right - Theme.S(56), top + height, Theme.S(56), height);
+        choose.SetBounds(right - Theme.S(56), card.ContentTop, Theme.S(56), height);
         path.SetBounds(pad, choose.Top, Math.Max(0, choose.Left - gap - pad), height);
         upload.SetBounds(right - Theme.S(106), path.Bottom + gap, Theme.S(106), height);
     }
 
-    private static Label Caption(string text)
-    {
-        return new Label
-        {
-            Text = text,
-            ForeColor = Theme.TextSecondary,
-            BackColor = Color.Transparent,
-            Font = Theme.Caption12,
-            TextAlign = ContentAlignment.MiddleLeft
-        };
-    }
 }
