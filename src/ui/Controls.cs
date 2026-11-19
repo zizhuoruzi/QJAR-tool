@@ -114,7 +114,7 @@ internal abstract class AnimatedControl : Control
     }
 }
 
-/* 设置按钮：只画一个齿轮，放在侧栏左下角。 */
+/* 设置入口：图标 + 文字的胶囊按钮，放在侧栏左下角。 */
 internal sealed class GearButton : AnimatedControl
 {
     internal GearButton()
@@ -124,11 +124,7 @@ internal sealed class GearButton : AnimatedControl
         Cursor = Cursors.Hand;
         AccessibleRole = AccessibleRole.PushButton;
         AccessibleName = "设置";
-    }
-
-    protected override void OnClick(EventArgs e)
-    {
-        base.OnClick(e);
+        Text = "设置";
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -139,17 +135,30 @@ internal sealed class GearButton : AnimatedControl
         Theme.Fill(g, box, Theme.S(Theme.RadiusElement),
             Theme.Mix(backdrop, Theme.OverlayPressed, 0.7f * Hover + 0.3f * Press));
         Theme.Stroke(g, box, Theme.S(Theme.RadiusElement), Theme.Border, 1f);
-        Color color = Enabled ? Theme.TextSecondary : Theme.TextDisabled;
+        Color color = Enabled ? Theme.TextPrimary : Theme.TextDisabled;
+        int icon = Theme.S(16);
+        var iconBox = new Rectangle(Theme.S(Theme.Space3), (Height - icon) / 2, icon, icon);
+        DrawGear(g, iconBox, color);
+        var label = new Rectangle(iconBox.Right + Theme.S(Theme.Space2), 0,
+            Width - iconBox.Right - Theme.S(Theme.Space3) - Theme.S(Theme.Space2), Height);
+        Theme.TextLeft(g, Text, label, Theme.Body14, color);
+        if (Focused && Visible)
+        {
+            Theme.Stroke(g, box, Theme.S(Theme.RadiusElement), Theme.Accent, Math.Max(1f, 2f * Theme.Scale));
+        }
+    }
+
+    internal static void DrawGear(Graphics g, Rectangle box, Color color)
+    {
         var old = g.SmoothingMode;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         using (var pen = new Pen(color, Math.Max(1.2f, 1.4f * Theme.Scale)))
         {
             pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
             pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-            int size = Theme.S(16);
             int cx = box.X + box.Width / 2, cy = box.Y + box.Height / 2;
-            int body = Theme.S(4);
-            int teeth = Theme.S(7);
+            int body = Math.Max(2, box.Width / 5);
+            int teeth = Math.Max(3, box.Width / 2 - 1);
             g.DrawEllipse(pen, cx - body, cy - body, body * 2, body * 2);
             for (int i = 0; i < 8; i++)
             {
@@ -158,13 +167,8 @@ internal sealed class GearButton : AnimatedControl
                     cx + (int)Math.Round(Math.Cos(angle) * body), cy + (int)Math.Round(Math.Sin(angle) * body),
                     cx + (int)Math.Round(Math.Cos(angle) * teeth), cy + (int)Math.Round(Math.Sin(angle) * teeth));
             }
-            if (size <= 0) { return; }
         }
         g.SmoothingMode = old;
-        if (Focused && Visible)
-        {
-            Theme.Stroke(g, box, Theme.S(Theme.RadiusElement), Theme.Accent, Math.Max(1f, 2f * Theme.Scale));
-        }
     }
 
     protected override bool IsInputKey(Keys keyData)

@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Windows.Forms;
 
 /* 窗口外壳：左侧栏（导航 / 控制器地址 / 管理员）＋右侧工作区（两个页面）。
@@ -28,10 +29,6 @@ internal sealed class MainForm : Form
     private readonly string[] profilePort = new string[2];
     private int profile;
     private bool applyingProfile;
-    private readonly ActionButton adminButton = new ActionButton("管理员登录", ButtonKind.Secondary);
-    private readonly TextField passwordField = new TextField("管理员密码");
-    private readonly ActionButton passwordOk = new ActionButton("登录", ButtonKind.Primary);
-    private readonly ActionButton passwordCancel = new ActionButton("取消", ButtonKind.Quiet);
     private readonly RegisterPage registerPage;
     private readonly CommandPage commandPage;
     private readonly BuildPage buildPage;
@@ -145,7 +142,7 @@ internal sealed class MainForm : Form
     // ---- 供页面读取的共享状态 -----------------------------------------------
     internal bool IsAdmin { get { return admin; } }
 
-    internal string ControllerIp { get { return ReadAddressText(); } }
+    internal string ControllerIp { get { return profileIp[0]; } }
 
     internal bool IsBusy { get { return busy; } }
     internal void SavePreferences() { if (built && !restoring) { SaveSettings(); } }
@@ -260,17 +257,6 @@ internal sealed class MainForm : Form
             {
                 e.Graphics.DrawLine(pen, sidebar.Width - 1, 0, sidebar.Width - 1, sidebar.Height);
             }
-            int size = Theme.S(4);
-            using (var brush = new SolidBrush(Theme.TextSecondary))
-            {
-                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                for (int i = 0; i < 3; i++)
-                {
-                    int cx = dotLeft[i] + Theme.S(8) / 2 - size / 2;
-                    int cy = dotTop + Theme.S(Theme.SizeMd) / 2 - size / 2;
-                    e.Graphics.FillEllipse(brush, cx, cy, size, size);
-                }
-            }
         };
 
 
@@ -309,31 +295,7 @@ internal sealed class MainForm : Form
 
         settingsButton.Click += delegate { OpenSettings(); };
 
-        adminButton.Click += delegate
-        {
-            if (admin)
-            {
-                try { Admin.Forget(); SetAdmin(false); }
-                catch (Exception error) { MessageBox.Show(this, "无法清除登录：" + error.Message, WindowTitle); }
-            }
-            else { ShowLogin(true); }
-        };
-
-        passwordField.UseSystemPasswordChar = true;
-        passwordField.MaxLength = 64;
-        passwordField.Accepted += delegate { TryLogin(); };
-        passwordField.EditKeyDown += delegate(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Escape) { ShowLogin(false); }
-        };
-        passwordOk.Click += delegate { TryLogin(); };
-        passwordCancel.Click += delegate { ShowLogin(false); };
-
-        sidebar.Controls.AddRange(new Control[]
-        {
-            tabs, profiles, ipCaption, portCaption, portField, settingsButton,
-            adminButton, passwordField, passwordOk, passwordCancel
-        });
+        sidebar.Controls.AddRange(new Control[] { tabs, settingsButton });
 
         workspace.BackColor = Theme.Body;
         workspace.Controls.Add(registerPage);
@@ -348,7 +310,6 @@ internal sealed class MainForm : Form
         Controls.Add(workspace);
         Controls.Add(sidebar);
 
-        ShowLogin(false);
         SetAdmin(false);
         ApplyFonts();
         built = true;
@@ -410,38 +371,8 @@ internal sealed class MainForm : Form
         tabs.Vertical = true;
         tabs.SetBounds(Theme.S(Theme.Space3), Theme.S(Theme.Space4), width - Theme.S(Theme.Space3) * 2,
             Theme.S(Theme.SizeLg) * 4 + Theme.S(Theme.Space1));
-        profiles.SetBounds(pad, tabs.Bottom + Theme.S(Theme.Space5), inner, Theme.S(Theme.SizeSm));
-
-        int octetWidth = Theme.S(54);
-        int dotWidth = Theme.S(8);
-        int small = Theme.S(Theme.SizeSm);
-        int addressTop = profiles.Bottom + Theme.S(Theme.Space2);
-        ipCaption.SetBounds(pad, addressTop, inner, captionHeight);
-        int top = ipCaption.Bottom + Theme.S(Theme.Space2);
-        int x = pad;
-        dotTop = top;
-        for (int i = 0; i < 4; i++)
-        {
-            octets[i].SetBounds(x, top, octetWidth, Theme.S(Theme.SizeMd));
-            x += octetWidth;
-            if (i < 3)
-            {
-                dotLeft[i] = x;
-                x += dotWidth;
-            }
-        }
-        portCaption.SetBounds(pad, octets[0].Bottom + Theme.S(Theme.Space3), inner, captionHeight);
-        portField.SetBounds(pad, portCaption.Bottom, inner, Theme.S(Theme.SizeMd));
-
-        // 管理员区：登录时用密码框替换状态行，避免和按钮叠在一起。
         int bottom = sidebar.Height - Theme.S(Theme.Space6);
-        settingsButton.SetBounds(pad, bottom - bar, bar, bar);
-        passwordCancel.SetBounds(width - pad - Theme.S(72), bottom - bar, Theme.S(72), bar);
-        passwordOk.SetBounds(passwordCancel.Left - Theme.S(Theme.Space2) - Theme.S(88), bottom - bar, Theme.S(88), bar);
-        passwordField.SetBounds(pad, passwordCancel.Top - Theme.S(Theme.Space2) - Theme.S(Theme.SizeMd),
-            inner, Theme.S(Theme.SizeMd));
-        adminButton.SetBounds(settingsButton.Right + Theme.S(Theme.Space2), bottom - bar,
-            width - pad - settingsButton.Right - Theme.S(Theme.Space2), bar);
+        settingsButton.SetBounds(pad, bottom - bar, inner, bar);
 
         // 工作区：顶部标签条，下面放页面。
 
@@ -511,26 +442,24 @@ internal sealed class MainForm : Form
     private void OpenSettings()
     {
         if (busy) { return; }
-        using (var dialog = new SettingsForm(profileIp[0], profilePort[0], profileIp[1], profilePort[1],
-            credentials, admin))
+        using (var dialog = new SettingsForm(profileIp[0], profilePort[0], profileIp[1], profilePort[1], profile,
+            credentials, admin,
+            delegate(string password) { return TryAdminLogin(password); },
+            delegate { ExitAdmin(); }))
         {
             if (dialog.ShowDialog(this) != DialogResult.OK) { return; }
-            if (!string.IsNullOrEmpty(dialog.NewPassword))
-            {
-                try
-                {
-                    Admin.SetPassword(dialog.NewPassword);
-                }
-                catch (Exception error)
-                {
-                    MessageBox.Show(this, "保存口令失败：" + error.Message, WindowTitle);
-                }
-            }
             credentials = dialog.SshCredentials ?? credentials;
             try { Credentials.Save(credentials); }
             catch (Exception error)
             {
                 MessageBox.Show(this, "保存 SSH 凭据失败：" + error.Message, WindowTitle);
+            }
+            if (dialog.Profile != profile)
+            {
+                profile = dialog.Profile;
+                profiles.SelectedIndex = profile;
+                ApplyProfile();
+                registerPage.ClearForAddressChange();
             }
             profileIp[0] = dialog.Ip1;
             profilePort[0] = dialog.Port1;
@@ -746,51 +675,26 @@ internal sealed class MainForm : Form
         }
     }
 
-    // ---- 管理员 -------------------------------------------------------------
-    private void ShowLogin(bool visible)
+    // ---- 管理员（登录面板在设置弹框里）---------------------------------
+
+    internal bool TryAdminLogin(string password)
     {
-        logging = visible;
-        passwordField.Visible = visible;
-        passwordOk.Visible = visible;
-        passwordCancel.Visible = visible;
-        adminButton.Visible = !visible;
-        if (visible)
-        {
-            passwordField.Text = "";
-            passwordField.Invalid = false;
-            passwordField.Edit.Focus();
-            adminButton.Text = "取消登录";
-        }
-        else
-        {
-            adminButton.Text = admin ? "退出管理" : "管理员登录";
-        }
-        LayoutUi();
+        if (!Admin.Matches(password)) { return false; }
+        Admin.Remember();
+        SetAdmin(true);
+        return true;
     }
 
-    private void TryLogin()
+    internal void ExitAdmin()
     {
-        if (Admin.Matches(passwordField.Text))
-        {
-            passwordField.Text = "";
-            ShowLogin(false);
-            SetAdmin(true);
-            try { Admin.Remember(); }
-            catch (Exception error) { MessageBox.Show(this, "无法记住登录：" + error.Message, WindowTitle); }
-        }
-        else
-        {
-            passwordField.Invalid = true;
-            passwordField.Text = "";
-            passwordField.Edit.Focus();
-        }
+        try { Admin.Forget(); }
+        catch (IOException) { }
+        SetAdmin(false);
     }
 
     private void SetAdmin(bool value)
     {
         admin = value;
-        if (logging) { ShowLogin(false); }
-        adminButton.Text = value ? "退出管理" : "管理员登录";
         registerPage.SetAdmin(value);
         commandPage.SetAdmin(value);
         buildPage.SetAdmin(value);
