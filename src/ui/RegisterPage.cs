@@ -20,7 +20,7 @@ internal sealed class RegisterPage : Panel
     private readonly ActionButton query = new ActionButton("查询状态", ButtonKind.Secondary);
     private readonly ActionButton register = new ActionButton("注册设备", ButtonKind.Primary);
     private readonly Card pendantCard = new Card("示教器");
-    private readonly SegmentedTabs pendantMode = new SegmentedTabs("实体", "本机虚拟") { Vertical = false };
+    private readonly SegmentedTabs pendantMode = new SegmentedTabs("实体", "本机虚拟") { Vertical = false, SlideSelection = true };
     private readonly TextField pendantPath = new TextField("选择 rbt_gui.exe");
     private readonly ActionButton browsePendant = new ActionButton("浏览", ButtonKind.Secondary);
     private readonly ActionButton openPendant = new ActionButton("打开示教器", ButtonKind.Secondary);

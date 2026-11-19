@@ -134,7 +134,7 @@ try {
 
     # --- 打包 --------------------------------------------------------------
     if ($Package) {
-        $version = '1.1.19'
+        $version = '1.1.20'
         $name = "QJAR工具-v$version"
         $stage = Join-Path $distDir $name
         $zip = Join-Path $distDir "$name.zip"

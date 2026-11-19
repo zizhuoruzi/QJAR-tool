@@ -120,6 +120,7 @@ internal enum ButtonKind { Primary, Secondary, Quiet, DangerQuiet }
 internal sealed class ActionButton : AnimatedControl
 {
     private ButtonKind kind = ButtonKind.Primary;
+    private bool pointerFocus;
 
     internal ActionButton(string text, ButtonKind kind)
     {
@@ -177,12 +178,24 @@ internal sealed class ActionButton : AnimatedControl
         }
         Theme.Text(g, Text, box, Theme.Body14, text,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
-        if (Focused && Visible)
+        if (Focused && ShowFocusCues && !pointerFocus)
         {
             Theme.Stroke(g, box, Theme.S(Theme.RadiusElement), Theme.Accent, Math.Max(1f, 2f * Theme.Scale));
         }
     }
 
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left) { pointerFocus = true; Invalidate(); }
+        base.OnMouseDown(e);
+    }
+
+    protected override void OnLeave(EventArgs e)
+    {
+        pointerFocus = false;
+        base.OnLeave(e);
+    }
 
     protected override bool IsInputKey(Keys keyData)
     {
@@ -191,6 +204,8 @@ internal sealed class ActionButton : AnimatedControl
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        pointerFocus = false;
+        Invalidate();
         if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
         {
             e.Handled = true;
@@ -865,8 +880,8 @@ internal sealed class SegmentedTabs : Control
             selected = next;
             EventHandler handler = SelectedIndexChanged;
             if (handler != null) { handler(this, EventArgs.Empty); }
-            // 创建目标页的原生控件可能占用一帧，等切页完成再开始底板动画。
-            if (SlideSelection && vertical && IsHandleCreated && Visible && !Theme.ReduceMotion())
+            // 创建目标页的原生控件可能占用一帧，等切页完成再开始动画。
+            if (SlideSelection && IsHandleCreated && Visible && !Theme.ReduceMotion())
             {
                 slideClock.Restart();
                 slide.Start();
@@ -979,6 +994,14 @@ internal sealed class SegmentedTabs : Control
             if (vertical) { PaintRow(g, pill, i, isSelected); continue; }
             PaintTab(g, rect, i, isSelected);
         }
+        if (!vertical && labels.Length > 0)
+        {
+            int width = Segment(0).Width;
+            int x = (int)Math.Round(SelectionPosition() * width);
+            int height = Math.Max(2, Theme.S(2));
+            Theme.Fill(g, new Rectangle(x + Theme.S(12), Height - height,
+                width - Theme.S(24), height), height / 2, Theme.Accent);
+        }
         if (Focused && ShowFocusCues && !pointerFocus && labels.Length > 0)
         {
             Rectangle focus = Segment(selected);
@@ -1030,12 +1053,6 @@ internal sealed class SegmentedTabs : Control
             isSelected ? Theme.Font(Theme.FontBase, FontStyle.Bold) : Theme.Body14,
             isSelected ? Theme.Accent : Theme.TextSecondary,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
-        if (isSelected)
-        {
-            int height = Math.Max(2, Theme.S(2));
-            Theme.Fill(g, new Rectangle(rect.X + Theme.S(12), Height - height,
-                rect.Width - Theme.S(24), height), height / 2, Theme.Accent);
-        }
     }
 
     /* 四个内置图标分别表示注册、命令调试、编译和升级 */

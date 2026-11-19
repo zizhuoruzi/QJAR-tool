@@ -15,7 +15,7 @@ internal sealed class MainForm : Form
     private readonly Panel sidebar = new Panel();
     private readonly Panel workspace = new Panel();
     private readonly SegmentedTabs tabs = new SegmentedTabs("编译", "注册", "命令调试", "升级") { SlideSelection = true };
-    private readonly SegmentedTabs profiles = new SegmentedTabs("实体控制器", "Ubuntu 虚拟机");
+    private readonly SegmentedTabs profiles = new SegmentedTabs("实体控制器", "Ubuntu 虚拟机") { SlideSelection = true };
     private readonly TextField[] octets = new TextField[4];
     private readonly int[] dotLeft = new int[3];
     private int dotTop;
@@ -42,7 +42,7 @@ internal sealed class MainForm : Form
     private readonly BuildPage buildPage;
     private readonly RemoteBuildPage remoteBuild;
     private readonly Panel buildWorkspace = new Panel { BackColor = Theme.Body };
-    private readonly SegmentedTabs buildModes = new SegmentedTabs("本机 WSL", "Ubuntu 远程") { Vertical = false };
+    private readonly SegmentedTabs buildModes = new SegmentedTabs("本机 WSL", "Ubuntu 远程") { Vertical = false, SlideSelection = true };
     private int currentPage = 2;
     private readonly UpgradePage upgradePage;
 
