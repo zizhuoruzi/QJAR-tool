@@ -58,6 +58,11 @@ try {
 
     if ($CoreOnly) { return }
 
+    # --- SSH 口令助手（SSH_ASKPASS 用，口令只经环境变量传递）----------------
+    & cl.exe /nologo /utf-8 /MT /O2 "/Fe$distDir\QJAskPass.exe" "$projectDir\src\askpass\AskPass.c" /link /SUBSYSTEM:CONSOLE
+    if ($LASTEXITCODE -ne 0) { throw 'SSH 口令助手编译失败。' }
+    Write-Host "已生成：$distDir\QJAskPass.exe"
+
     # --- C# 外壳 -> QJAR工具.exe ------------------------------------------
     $compiler = Join-Path $vsRoot 'MSBuild\Current\Bin\Roslyn\csc.exe'
     if (-not (Test-Path -LiteralPath $compiler)) { throw '未找到 Roslyn C# 编译器。' }
@@ -134,19 +139,20 @@ try {
 
     # --- 打包 --------------------------------------------------------------
     if ($Package) {
-        $version = '1.2.0'
+        $version = '1.2.1'
         $name = "QJAR工具-v$version"
         $stage = Join-Path $distDir $name
         $zip = Join-Path $distDir "$name.zip"
         if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
         if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
         New-Item -ItemType Directory -Path $stage | Out-Null
-        Copy-Item -LiteralPath "$distDir\QJAR工具.exe", "$distDir\QJCore.dll", "$distDir\QJAR工具.exe.config" -Destination $stage
+        Copy-Item -LiteralPath "$distDir\QJAR工具.exe", "$distDir\QJCore.dll", "$distDir\QJAR工具.exe.config", "$distDir\QJAskPass.exe" -Destination $stage
         Copy-Item -LiteralPath (Join-Path $projectDir 'Docs\使用说明.txt') -Destination $stage
         Copy-Item -LiteralPath (Join-Path $projectDir 'Docs\agent-wsl-setup.md'), (Join-Path $projectDir 'Environment\build-controller.sh') -Destination $stage
         $exeHash = (Get-FileHash -LiteralPath (Join-Path $stage 'QJAR工具.exe') -Algorithm SHA256).Hash
         $dllHash = (Get-FileHash -LiteralPath (Join-Path $stage 'QJCore.dll') -Algorithm SHA256).Hash
-        @("SHA256 (QJAR工具.exe) = $exeHash", "SHA256 (QJCore.dll) = $dllHash") |
+        $askHash = (Get-FileHash -LiteralPath (Join-Path $stage 'QJAskPass.exe') -Algorithm SHA256).Hash
+        @("SHA256 (QJAR工具.exe) = $exeHash", "SHA256 (QJCore.dll) = $dllHash", "SHA256 (QJAskPass.exe) = $askHash") |
             Set-Content -LiteralPath (Join-Path $stage 'SHA256.txt') -Encoding utf8
         Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
         Write-Host "已打包：$zip"

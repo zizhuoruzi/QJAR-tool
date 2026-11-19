@@ -114,6 +114,75 @@ internal abstract class AnimatedControl : Control
     }
 }
 
+/* 设置按钮：只画一个齿轮，放在侧栏左下角。 */
+internal sealed class GearButton : AnimatedControl
+{
+    internal GearButton()
+    {
+        TabStop = true;
+        Height = Theme.S(Theme.SizeLg);
+        Cursor = Cursors.Hand;
+        AccessibleRole = AccessibleRole.PushButton;
+        AccessibleName = "设置";
+    }
+
+    protected override void OnClick(EventArgs e)
+    {
+        base.OnClick(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        Rectangle box = new Rectangle(0, 0, Width, Height);
+        Color backdrop = Parent != null ? Parent.BackColor : Theme.Body;
+        Theme.Fill(g, box, Theme.S(Theme.RadiusElement),
+            Theme.Mix(backdrop, Theme.OverlayPressed, 0.7f * Hover + 0.3f * Press));
+        Theme.Stroke(g, box, Theme.S(Theme.RadiusElement), Theme.Border, 1f);
+        Color color = Enabled ? Theme.TextSecondary : Theme.TextDisabled;
+        var old = g.SmoothingMode;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using (var pen = new Pen(color, Math.Max(1.2f, 1.4f * Theme.Scale)))
+        {
+            pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+            pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+            int size = Theme.S(16);
+            int cx = box.X + box.Width / 2, cy = box.Y + box.Height / 2;
+            int body = Theme.S(4);
+            int teeth = Theme.S(7);
+            g.DrawEllipse(pen, cx - body, cy - body, body * 2, body * 2);
+            for (int i = 0; i < 8; i++)
+            {
+                double angle = Math.PI * 2 * i / 8;
+                g.DrawLine(pen,
+                    cx + (int)Math.Round(Math.Cos(angle) * body), cy + (int)Math.Round(Math.Sin(angle) * body),
+                    cx + (int)Math.Round(Math.Cos(angle) * teeth), cy + (int)Math.Round(Math.Sin(angle) * teeth));
+            }
+            if (size <= 0) { return; }
+        }
+        g.SmoothingMode = old;
+        if (Focused && Visible)
+        {
+            Theme.Stroke(g, box, Theme.S(Theme.RadiusElement), Theme.Accent, Math.Max(1f, 2f * Theme.Scale));
+        }
+    }
+
+    protected override bool IsInputKey(Keys keyData)
+    {
+        return keyData == Keys.Enter || keyData == Keys.Space || base.IsInputKey(keyData);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
+        {
+            e.Handled = true;
+            OnClick(EventArgs.Empty);
+        }
+        base.OnKeyDown(e);
+    }
+}
+
 internal enum ButtonKind { Primary, Secondary, Quiet, DangerQuiet }
 
 /* 主/次/文字/危险文字四档按钮，高度 36（size-element-lg）。 */

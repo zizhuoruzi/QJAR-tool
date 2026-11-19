@@ -223,7 +223,11 @@ internal sealed class UpgradePage : Panel
         });
         try
         {
-            await Task.Run(() => SshUpgrade.Upload(ip, path, pendant, current.Token, ((IProgress<int>)report).Report));
+            Credentials.Values credentials = shell.SshCredentials;
+            string sshUser = pendant ? credentials.PendantUser : credentials.ControllerUser;
+            string sshPassword = pendant ? credentials.PendantPassword : credentials.ControllerPassword;
+            await Task.Run(() => SshUpgrade.Upload(ip, path, pendant, current.Token,
+                ((IProgress<int>)report).Report, null, sshUser, sshPassword));
             if (!IsDisposed)
             {
                 progress.Value = 100;
@@ -287,7 +291,9 @@ internal sealed class UpgradePage : Panel
         LayoutTarget(pendantCard, pendantFile, choosePendant, uploadPendant);
 
         int top = pendantCard.Bottom + gap;
-        logCard.SetBounds(pad, top, width, Math.Max(Theme.S(100), Height - pad - top));
+        int logHeight = Height - pad - top;
+        logCard.Visible = logHeight >= Theme.S(140);
+        if (logCard.Visible) { logCard.SetBounds(pad, top, width, logHeight); }
         int toolbar = Theme.S(Theme.Space5) - Theme.S(2);
         clearLog.SetBounds(width - inset - Theme.S(64), toolbar, Theme.S(64), Theme.S(Theme.SizeSm));
         exportLog.SetBounds(clearLog.Left - Theme.S(96), toolbar, Theme.S(88), Theme.S(Theme.SizeSm));

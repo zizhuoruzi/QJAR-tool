@@ -33,7 +33,7 @@ internal static class SshUpgrade
     }
 
     internal static void Upload(string ip, string package, bool pendant, CancellationToken cancellation,
-        Action<int> progress, string ssh = null)
+        Action<int> progress, string ssh = null, string user = "root", string password = null)
     {
         string address;
         if (!TryGetIp(ip, out address))
@@ -71,9 +71,14 @@ internal static class SshUpgrade
                 "printf '%s  %s\\n' '" + checksum + "' \"$tmp\" | sha256sum -c - >/dev/null; " +
                 "chmod 644 \"$tmp\"; mv -fT \"$tmp\" \"$dst\"; printf 'QJ_UPLOAD_OK\\n'";
             var info = new ProcessStartInfo(ssh,
-                "-T -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 " +
+                "-T -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 " +
                 "-o ConnectionAttempts=1 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 " +
-                "root@" + address + " \"" + script.Replace("\"", "\\\"") + "\"")
+                (SshClient.HasPassword(password)
+                    ? "-o BatchMode=no -o NumberOfPasswordPrompts=1 " +
+                      "-o PreferredAuthentications=publickey,password,keyboard-interactive "
+                    : "-o BatchMode=yes ") +
+                (string.IsNullOrWhiteSpace(user) ? "root" : user) + "@" + address + " \"" +
+                script.Replace("\"", "\\\"") + "\"")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -81,6 +86,12 @@ internal static class SshUpgrade
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
+            if (SshClient.HasPassword(password))
+            {
+                info.EnvironmentVariables["SSH_ASKPASS"] = SshClient.AskPassPath;
+                info.EnvironmentVariables["SSH_ASKPASS_REQUIRE"] = "force";
+                info.EnvironmentVariables[SshClient.PasswordVariable] = password;
+            }
             timeout.Token.ThrowIfCancellationRequested();
             using (Process process = Process.Start(info))
             using (timeout.Token.Register(delegate { Stop(process); }))

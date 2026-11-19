@@ -14,13 +14,19 @@ internal sealed class ControllerBuild
     private const string StagePattern = @"\A/tmp/qj-controller-build\.[A-Za-z0-9]{8}\z";
     private readonly string sshPath = Path.Combine(Environment.SystemDirectory, "OpenSSH", "ssh.exe");
     private readonly string sshOptions;
+    private readonly string sshPassword;
     private readonly Action<string> log;
 
-    internal ControllerBuild(string host, string user, int port, Action<string> log)
+    internal ControllerBuild(string host, string user, int port, Action<string> log, string password = null)
     {
-        sshOptions = "-T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 " +
+        sshPassword = password ?? string.Empty;
+        sshOptions = "-T -o StrictHostKeyChecking=yes -o ConnectTimeout=10 " +
             "-o ServerAliveInterval=15 -o ServerAliveCountMax=3 -p " + port.ToString(CultureInfo.InvariantCulture) +
             " -l " + user + " -- " + host + " ";
+        sshOptions += SshClient.HasPassword(sshPassword)
+            ? "-o BatchMode=no -o NumberOfPasswordPrompts=1 " +
+              "-o PreferredAuthentications=publickey,password,keyboard-interactive "
+            : "-o BatchMode=yes ";
         this.log = log;
     }
 
@@ -443,6 +449,12 @@ internal sealed class ControllerBuild
             StandardErrorEncoding = Encoding.UTF8
         };
         if (directory != null) { start.WorkingDirectory = directory; }
+        if (SshClient.HasPassword(sshPassword) && string.Equals(file, sshPath, StringComparison.OrdinalIgnoreCase))
+        {
+            start.EnvironmentVariables["SSH_ASKPASS"] = SshClient.AskPassPath;
+            start.EnvironmentVariables["SSH_ASKPASS_REQUIRE"] = "force";
+            start.EnvironmentVariables[SshClient.PasswordVariable] = sshPassword;
+        }
         using (var process = new Process { StartInfo = start })
         {
             Exception outputError = null;

@@ -237,7 +237,12 @@ internal sealed class BuildPage : Panel
         settingCard.SetBounds(pad, projectCard.Bottom + gap, width, phaseText.Bottom + cardPad);
 
         int logTop = settingCard.Bottom + gap;
-        logCard.SetBounds(pad, logTop, width, Math.Max(Theme.S(96), Height - pad - logTop));
+        int logHeight = Height - pad - logTop;
+        logCard.Visible = logHeight >= Theme.S(140);
+        if (logCard.Visible)
+        {
+            logCard.SetBounds(pad, logTop, width, logHeight);
+        }
         int toolbarY = Theme.S(Theme.Space5) - Theme.S(2);
         clearLog.SetBounds(logCard.Width - cardPad - Theme.S(64), toolbarY, Theme.S(64), Theme.S(Theme.SizeSm));
         exportLog.SetBounds(clearLog.Left - Theme.S(Theme.Space2) - Theme.S(88), toolbarY, Theme.S(88), Theme.S(Theme.SizeSm));

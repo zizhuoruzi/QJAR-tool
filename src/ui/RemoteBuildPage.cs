@@ -50,6 +50,8 @@ internal sealed class RemoteBuildPage : Panel
     private bool admin;
     private bool running;
     private string host;
+    private string sshUser = SshUser;
+    private string sshPassword = string.Empty;
     private string sourceRoot;
     private string sourceVersion;
     private string packageDirectory;
@@ -143,11 +145,14 @@ internal sealed class RemoteBuildPage : Panel
         get { return sourceRoot == null ? DefaultSource : Path.Combine(sourceRoot, "cx-v3.0"); }
     }
 
-    internal void SetHost(string value)
+    internal void SetHost(string value, string user, string password)
     {
-        if (host == value) { return; }
+        bool changed = host != value || sshUser != user || sshPassword != password;
+        if (!changed) { return; }
         StopConsole();
         host = value;
+        sshUser = string.IsNullOrWhiteSpace(user) ? SshUser : user;
+        sshPassword = password ?? string.Empty;
         ResetProjects();
     }
 
@@ -201,13 +206,18 @@ internal sealed class RemoteBuildPage : Panel
 
         int logTop = logExpanded ? pad : connectionCard.Bottom + Theme.S(Theme.Space4);
         int outputHeight = Theme.S(58);
-        logCard.SetBounds(pad, logTop, width, Math.Max(Theme.S(96), Height - pad - logTop - outputHeight - gap));
+        int logHeight = Height - pad - logTop - outputHeight - gap;
+        logCard.Visible = logHeight >= Theme.S(140);
+        if (logCard.Visible)
+        {
+            logCard.SetBounds(pad, logTop, width, logHeight);
+        }
         export.SetBounds(width - cardPad - Theme.S(88), Theme.S(Theme.Space5) - Theme.S(2), Theme.S(88), Theme.S(Theme.SizeSm));
         stopConsole.SetBounds(export.Left - gap - export.Width, export.Top, export.Width, export.Height);
         int otherActionsLeft = consoleCancellation == null ? export.Left : stopConsole.Left;
         logLayout.SetBounds(otherActionsLeft - gap - export.Width, export.Top, export.Width, export.Height);
         log.SetBounds(cardPad, logCard.ContentTop, inner, Math.Max(Theme.S(48), logCard.Height - logCard.ContentTop - cardPad));
-        outputCard.SetBounds(pad, logCard.Bottom + gap, width, outputHeight);
+        outputCard.SetBounds(pad, (logCard.Visible ? logCard.Bottom : logTop) + gap, width, outputHeight);
         int outputY = (outputHeight - bar) / 2;
         upgradePackage.SetBounds(width - cardPad - Theme.S(104), outputY, Theme.S(104), bar);
         int browseRight = driver.SelectedIndex == 0 ? upgradePackage.Left - gap : width - cardPad;
@@ -446,7 +456,7 @@ internal sealed class RemoteBuildPage : Panel
     private ControllerBuild GetConnection()
     {
         IProgress<string> progress = new Progress<string>(AppendLog);
-        return new ControllerBuild(host, SshUser, SshPort, progress.Report);
+        return new ControllerBuild(host, sshUser, SshPort, progress.Report, sshPassword);
     }
 
     private async void LoadVisibleProjects()

@@ -22,17 +22,12 @@ internal sealed class MainForm : Form
     private readonly TextField portField = new TextField("端口");
     private readonly Label ipCaption = new Label();
     private readonly Label portCaption = new Label();
-    private readonly ActionButton editAddress = new ActionButton("修改", ButtonKind.Secondary);
-    private readonly ActionButton saveAddress = new ActionButton("保存", ButtonKind.Primary);
-    private readonly ActionButton cancelAddress = new ActionButton("取消", ButtonKind.Quiet);
-    private readonly string[] savedOctets = new string[4];
-    private string savedPort = string.Empty;
+    private readonly GearButton settingsButton = new GearButton();
+    private Credentials.Values credentials = new Credentials.Values();
     private readonly string[] profileIp = new string[2];
     private readonly string[] profilePort = new string[2];
     private int profile;
     private bool applyingProfile;
-    private bool editingAddress;
-    private bool validatingAddress;
     private readonly ActionButton adminButton = new ActionButton("管理员登录", ButtonKind.Secondary);
     private readonly TextField passwordField = new TextField("管理员密码");
     private readonly ActionButton passwordOk = new ActionButton("登录", ButtonKind.Primary);
@@ -150,7 +145,7 @@ internal sealed class MainForm : Form
     // ---- 供页面读取的共享状态 -----------------------------------------------
     internal bool IsAdmin { get { return admin; } }
 
-    internal string ControllerIp { get { return editingAddress ? string.Join(".", savedOctets) : ReadAddressText(); } }
+    internal string ControllerIp { get { return ReadAddressText(); } }
 
     internal bool IsBusy { get { return busy; } }
     internal void SavePreferences() { if (built && !restoring) { SaveSettings(); } }
@@ -178,11 +173,6 @@ internal sealed class MainForm : Form
 
     internal bool TryGetAddress(out string ip, out int port)
     {
-        if (editingAddress && !validatingAddress)
-        {
-            ip = string.Join(".", savedOctets);
-            return int.TryParse(savedPort, out port);
-        }
         ip = null;
         port = 0;
         for (int i = 0; i < 4; i++)
@@ -257,9 +247,6 @@ internal sealed class MainForm : Form
         profiles.Enabled = !value;
         upgradePage.SetBusy(value);
         tabs.Enabled = !value;
-        editAddress.Enabled = !value;
-        saveAddress.Enabled = !value;
-        cancelAddress.Enabled = !value;
     }
 
     // ---- 界面搭建 -----------------------------------------------------------
@@ -318,17 +305,9 @@ internal sealed class MainForm : Form
 
         portField.MaxLength = 5;
         portField.Edit.TextChanged += delegate { portField.Invalid = false; };
-        portField.Accepted += delegate
-        {
-            if (editingAddress) { CommitAddressEdit(); } else { SaveSettings(); }
-        };
-        portField.EditKeyDown += delegate(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Escape && editingAddress) { e.Handled = true; e.SuppressKeyPress = true; CancelAddressEdit(); }
-        };
-        editAddress.Click += delegate { BeginAddressEdit(); };
-        saveAddress.Click += delegate { CommitAddressEdit(); };
-        cancelAddress.Click += delegate { CancelAddressEdit(); };
+        portField.Accepted += delegate { SaveSettings(); };
+
+        settingsButton.Click += delegate { OpenSettings(); };
 
         adminButton.Click += delegate
         {
@@ -352,7 +331,7 @@ internal sealed class MainForm : Form
 
         sidebar.Controls.AddRange(new Control[]
         {
-            tabs, profiles, ipCaption, portCaption, portField, editAddress, saveAddress, cancelAddress,
+            tabs, profiles, ipCaption, portCaption, portField, settingsButton,
             adminButton, passwordField, passwordOk, passwordCancel
         });
 
@@ -436,11 +415,9 @@ internal sealed class MainForm : Form
         int octetWidth = Theme.S(54);
         int dotWidth = Theme.S(8);
         int small = Theme.S(Theme.SizeSm);
-        int editWidth = Theme.S(52);
         int addressTop = profiles.Bottom + Theme.S(Theme.Space2);
-        editAddress.SetBounds(width - pad - editWidth, addressTop, editWidth, small);
-        ipCaption.SetBounds(pad, addressTop + (small - captionHeight) / 2, inner - editWidth, captionHeight);
-        int top = editAddress.Bottom + Theme.S(Theme.Space2);
+        ipCaption.SetBounds(pad, addressTop, inner, captionHeight);
+        int top = ipCaption.Bottom + Theme.S(Theme.Space2);
         int x = pad;
         dotTop = top;
         for (int i = 0; i < 4; i++)
@@ -456,19 +433,15 @@ internal sealed class MainForm : Form
         portCaption.SetBounds(pad, octets[0].Bottom + Theme.S(Theme.Space3), inner, captionHeight);
         portField.SetBounds(pad, portCaption.Bottom, inner, Theme.S(Theme.SizeMd));
 
-        int actionTop = portField.Bottom + Theme.S(Theme.Space2);
-        int saveWidth = Theme.S(72);
-        int cancelWidth = Theme.S(60);
-        saveAddress.SetBounds(width - pad - saveWidth, actionTop, saveWidth, small);
-        cancelAddress.SetBounds(saveAddress.Left - Theme.S(Theme.Space2) - cancelWidth, actionTop, cancelWidth, small);
-
         // 管理员区：登录时用密码框替换状态行，避免和按钮叠在一起。
         int bottom = sidebar.Height - Theme.S(Theme.Space6);
+        settingsButton.SetBounds(pad, bottom - bar, bar, bar);
         passwordCancel.SetBounds(width - pad - Theme.S(72), bottom - bar, Theme.S(72), bar);
         passwordOk.SetBounds(passwordCancel.Left - Theme.S(Theme.Space2) - Theme.S(88), bottom - bar, Theme.S(88), bar);
         passwordField.SetBounds(pad, passwordCancel.Top - Theme.S(Theme.Space2) - Theme.S(Theme.SizeMd),
             inner, Theme.S(Theme.SizeMd));
-        adminButton.SetBounds(pad, bottom - bar, inner, bar);
+        adminButton.SetBounds(settingsButton.Right + Theme.S(Theme.Space2), bottom - bar,
+            width - pad - settingsButton.Right - Theme.S(Theme.Space2), bar);
 
         // 工作区：顶部标签条，下面放页面。
 
@@ -529,7 +502,45 @@ internal sealed class MainForm : Form
 
     private void UpdateTargets()
     {
-        remoteBuild.SetHost(profileIp[1]);
+        remoteBuild.SetHost(profileIp[1], credentials.UbuntuUser, credentials.UbuntuPassword);
+    }
+
+    internal Credentials.Values SshCredentials { get { return credentials; } }
+
+    /* 齿轮按钮：地址、SSH 凭据与管理员口令都在这里改，保存后立即生效。 */
+    private void OpenSettings()
+    {
+        if (busy) { return; }
+        using (var dialog = new SettingsForm(profileIp[0], profilePort[0], profileIp[1], profilePort[1],
+            credentials, admin))
+        {
+            if (dialog.ShowDialog(this) != DialogResult.OK) { return; }
+            if (!string.IsNullOrEmpty(dialog.NewPassword))
+            {
+                try
+                {
+                    Admin.SetPassword(dialog.NewPassword);
+                }
+                catch (Exception error)
+                {
+                    MessageBox.Show(this, "保存口令失败：" + error.Message, WindowTitle);
+                }
+            }
+            credentials = dialog.SshCredentials ?? credentials;
+            try { Credentials.Save(credentials); }
+            catch (Exception error)
+            {
+                MessageBox.Show(this, "保存 SSH 凭据失败：" + error.Message, WindowTitle);
+            }
+            profileIp[0] = dialog.Ip1;
+            profilePort[0] = dialog.Port1;
+            profileIp[1] = dialog.Ip2;
+            profilePort[1] = dialog.Port2;
+            ApplyProfile();
+            SaveSettings();
+            UpdateTargets();
+            registerPage.ClearForAddressChange();
+        }
     }
 
     // ---- 地址输入 -----------------------------------------------------------
@@ -551,12 +562,6 @@ internal sealed class MainForm : Form
         for (int i = 0; i < 4; i++)
         {
             if (octets[i].Edit != sender) { continue; }
-            if (e.KeyCode == Keys.Escape && editingAddress)
-            {
-                e.Handled = e.SuppressKeyPress = true;
-                CancelAddressEdit();
-                return;
-            }
             if (e.KeyCode == Keys.OemPeriod || e.KeyCode == Keys.Decimal)
             {
                 if (i < 3) { octets[i + 1].Edit.Focus(); octets[i + 1].Edit.SelectAll(); }
@@ -614,52 +619,13 @@ internal sealed class MainForm : Form
     // ---- 地址编辑：默认只读，点“修改”才可编辑 ----
     private void SetAddressEditing(bool value)
     {
-        editingAddress = value;
         for (int i = 0; i < 4; i++)
         {
-            octets[i].IsReadOnly = !value;
+            octets[i].IsReadOnly = true;
             octets[i].Invalid = false;
         }
-        portField.IsReadOnly = !value;
+        portField.IsReadOnly = true;
         portField.Invalid = false;
-        editAddress.Visible = !value;
-        saveAddress.Visible = value;
-        cancelAddress.Visible = value;
-    }
-
-    private void BeginAddressEdit()
-    {
-        if (busy) { return; }
-        for (int i = 0; i < 4; i++) { savedOctets[i] = octets[i].Text; }
-        savedPort = portField.Text;
-        SetAddressEditing(true);
-        octets[0].Edit.Focus();
-        octets[0].Edit.SelectAll();
-    }
-
-    private void CommitAddressEdit()
-    {
-        string ip;
-        int port;
-        if (!ReadAddress(out ip, out port))
-        {
-            validatingAddress = true;
-            try { TryGetAddress(out ip, out port); }
-            finally { validatingAddress = false; }
-            return;
-        }
-        string before = string.Join(".", savedOctets) + ":" + savedPort;
-        SetAddressEditing(false);
-        SaveSettings();
-        UpdateTargets();
-        if (before != ip + ":" + port) { registerPage.ClearForAddressChange(); }
-    }
-
-    private void CancelAddressEdit()
-    {
-        for (int i = 0; i < 4; i++) { octets[i].Text = savedOctets[i]; }
-        portField.Text = savedPort;
-        SetAddressEditing(false);
     }
 
     private void LoadSettings()
@@ -682,6 +648,7 @@ internal sealed class MainForm : Form
             currentPage = values.Page;
             buildModes.SelectedIndex = values.BuildMode;
             registerPage.SetPendantMode(values.VirtualPendant);
+            credentials = Credentials.Load();
             SetAdmin(Admin.IsRemembered());
             UpdateTargets();
         }
@@ -717,7 +684,6 @@ internal sealed class MainForm : Form
     private void SwitchProfile(int index)
     {
         if (!built || restoring || busy || index < 0 || index > 1 || index == profile) { return; }
-        if (editingAddress) { CancelAddressEdit(); }
         string ip;
         int port;
         if (ReadAddress(out ip, out port))
@@ -755,7 +721,7 @@ internal sealed class MainForm : Form
         {
             string ip;
             int port;
-            if (!editingAddress && ReadAddress(out ip, out port))
+            if (ReadAddress(out ip, out port))
             {
                 profileIp[profile] = ip;
                 profilePort[profile] = port.ToString(CultureInfo.InvariantCulture);
