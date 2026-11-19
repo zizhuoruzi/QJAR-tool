@@ -58,6 +58,7 @@ internal sealed class RemoteBuildPage : Panel
     private string matchedProject;
     private bool projectsLoaded;
     private string savedPackage;
+    private string savedPackageDriver;
 
     private sealed class ProjectChoice
     {
@@ -78,7 +79,7 @@ internal sealed class RemoteBuildPage : Panel
         driver.AccessibleName = "轴类型";
         driver.Items.AddRange(new object[] { "实体轴（EtherCAT）", "虚拟轴（Virtual Servo）" });
         driver.SelectedIndex = 0;
-        driver.SelectedIndexChanged += delegate { UpdateButtons(); };
+        driver.SelectedIndexChanged += delegate { UpdateButtons(); LayoutPage(); };
         projects.AccessibleName = projectLabel.Text;
         projects.BackColor = Theme.Surface;
         projects.SelectionChangeCommitted += delegate { SelectProject((ProjectChoice)projects.SelectedItem, true); };
@@ -105,6 +106,7 @@ internal sealed class RemoteBuildPage : Panel
         browsePackage.Click += delegate { BrowseCompletedPackage(); };
         upgradePackage.Click += delegate
         {
+            if (!upgradePackage.Enabled) { return; }
             if (File.Exists(savedPackage)) { shell.UpgradeBuildPackage(savedPackage); }
             else { SetStatus("升级包已移动或删除，请重新打包。", true); }
         };
@@ -208,7 +210,8 @@ internal sealed class RemoteBuildPage : Panel
         outputCard.SetBounds(pad, logCard.Bottom + gap, width, outputHeight);
         int outputY = (outputHeight - bar) / 2;
         upgradePackage.SetBounds(width - cardPad - Theme.S(104), outputY, Theme.S(104), bar);
-        browsePackage.SetBounds(upgradePackage.Left - gap - Theme.S(88), outputY, Theme.S(88), bar);
+        int browseRight = driver.SelectedIndex == 0 ? upgradePackage.Left - gap : width - cardPad;
+        browsePackage.SetBounds(browseRight - Theme.S(88), outputY, Theme.S(88), bar);
         int fileLeft = Theme.S(112);
         packageName.SetBounds(fileLeft, outputY, Math.Max(0, browsePackage.Left - fileLeft - gap), bar);
     }
@@ -338,7 +341,10 @@ internal sealed class RemoteBuildPage : Panel
     private void UpdateButtons()
     {
         refresh.Enabled = !running && !string.IsNullOrEmpty(host);
-        upgradePackage.Enabled = admin && !running && File.Exists(savedPackage);
+        bool physicalAxis = driver.SelectedIndex == 0;
+        upgradePackage.Visible = physicalAxis;
+        upgradePackage.Enabled = physicalAxis && savedPackageDriver == ProjectMakefile.DriverEthercat &&
+            admin && !running && File.Exists(savedPackage);
         bool onlyPackage = packageOnly.Checked;
         compile.Text = onlyPackage ? "打包" : "编译";
         compile.Enabled = admin && !running && (onlyPackage || sourceRoot != null) && selectedProject != null;
@@ -503,7 +509,7 @@ internal sealed class RemoteBuildPage : Panel
             }
             await Task.Run(() => connection.Build(buildSource, projectName, driverName, launch, package,
                 PasswordPrompt(buildHost, projectName), RetryOccupiedPackage, ConsoleReady(connection),
-                path => Invoke(new Action(() => ShowCompletedPackage(path)))));
+                path => Invoke(new Action(() => ShowCompletedPackage(path, driverName)))));
             string result = package ? "编译成功，更新包已保存到 Windows。" : "编译成功。";
             SetStatus(launch ? result + "虚拟控制器已启动。" : result);
         });
@@ -528,15 +534,16 @@ internal sealed class RemoteBuildPage : Panel
         await RunOperation("正在打包 Ubuntu 已部署版本…", async delegate
         {
             string path = await Task.Run(() => connection.PackageExisting(project, driverName, directory, RetryOccupiedPackage));
-            ShowCompletedPackage(path);
+            ShowCompletedPackage(path, driverName);
             SetStatus("打包成功，更新包已保存到 Windows。");
         });
         if (host != packageHost) { LoadVisibleProjects(); }
     }
 
-    private void ShowCompletedPackage(string path)
+    private void ShowCompletedPackage(string path, string driverName)
     {
         savedPackage = path;
+        savedPackageDriver = driverName;
         packageName.Text = Path.GetFileName(path);
         browsePackage.Enabled = true;
         UpdateButtons();

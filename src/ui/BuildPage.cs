@@ -41,7 +41,7 @@ internal sealed class BuildPage : Panel
     private readonly ActionButton upgrade = new ActionButton("升级控制器", ButtonKind.Secondary);
     private readonly StatusPill statePill = new StatusPill();
     private readonly ProgressBar progress = new ProgressBar();
-    private readonly Label phaseText = Caption("等待开始");
+    private readonly Label phaseText = Caption("");
     private readonly Label elapsedText = Caption("");
 
     private readonly Card logCard = new Card("构建日志");
@@ -60,6 +60,7 @@ internal sealed class BuildPage : Panel
     private string projectDir = string.Empty;
     private string distro = Wsl.DefaultDistribution;
     private string outputDir;
+    private string outputDriver;
     private string workName;
     private string lastLine;
     private bool package = true;
@@ -90,7 +91,7 @@ internal sealed class BuildPage : Panel
         packageToggle.Click += delegate { TogglePackage(); };
         upgrade.Click += delegate
         {
-            if (!string.IsNullOrEmpty(outputDir))
+            if (upgrade.Enabled)
             {
                 shell.UpgradeBuildPackage(Path.Combine(outputDir, PackageName));
             }
@@ -207,10 +208,9 @@ internal sealed class BuildPage : Panel
         guide.SetBounds(choose.Left - Theme.S(Theme.Space2) - Theme.S(88), top, Theme.S(88), field);
         projectField.SetBounds(cardPad, top, guide.Left - Theme.S(Theme.Space2) - cardPad, field);
 
-        settingCard.SetBounds(pad, projectCard.Bottom + gap, width, Theme.S(225));
         int y = settingCard.ContentTop;
         versionCaption.SetBounds(cardPad, y + Theme.S(7), Theme.S(56), Theme.S(18));
-        saveVersion.SetBounds(settingCard.Width - cardPad - Theme.S(64), y, Theme.S(64), field);
+        saveVersion.SetBounds(width - cardPad - Theme.S(64), y, Theme.S(64), field);
         int versionLeft = cardPad + Theme.S(56) + Theme.S(Theme.Space2);
         versionField.SetBounds(versionLeft, y, saveVersion.Left - Theme.S(Theme.Space2) - versionLeft, field);
 
@@ -223,16 +223,18 @@ internal sealed class BuildPage : Panel
         build.SetBounds(cardPad, row3, Theme.S(108), bar);
         cancel.SetBounds(build.Right + Theme.S(Theme.Space2), row3, Theme.S(72), bar);
         packageToggle.SetBounds(cancel.Right + Theme.S(Theme.Space2), row3, Theme.S(96), bar);
-        upgrade.SetBounds(settingCard.Width - cardPad - Theme.S(104), row2, Theme.S(104), field);
-        statePill.SetBounds(settingCard.Width - cardPad - statePill.Width,
+        upgrade.SetBounds(width - cardPad - Theme.S(104), row2, Theme.S(104), field);
+        statePill.SetBounds(width - cardPad - statePill.Width,
             row3 + (bar - statePill.Height) / 2, statePill.Width, statePill.Height);
 
         int row4 = row3 + bar + Theme.S(Theme.Space3);
-        int settingInner = settingCard.Width - cardPad * 2;
+        int settingInner = width - cardPad * 2;
         progress.SetBounds(cardPad, row4, settingInner, Theme.S(6));
         int captionTop = progress.Bottom + Theme.S(Theme.Space1);
-        phaseText.SetBounds(cardPad, captionTop, settingInner - Theme.S(160), Theme.S(18));
-        elapsedText.SetBounds(settingCard.Width - cardPad - Theme.S(160), captionTop, Theme.S(160), Theme.S(18));
+        int captionHeight = Theme.Line(phaseText.Font);
+        phaseText.SetBounds(cardPad, captionTop, settingInner - Theme.S(160), captionHeight);
+        elapsedText.SetBounds(width - cardPad - Theme.S(160), captionTop, Theme.S(160), captionHeight);
+        settingCard.SetBounds(pad, projectCard.Bottom + gap, width, phaseText.Bottom + cardPad);
 
         int logTop = settingCard.Bottom + gap;
         logCard.SetBounds(pad, logTop, width, Math.Max(Theme.S(96), Height - pad - logTop));
@@ -664,6 +666,7 @@ internal sealed class BuildPage : Panel
             {
             }
         }
+        outputDriver = driver;
         Append("构建成功：" + version + " · " + driver, Theme.Success);
         Append("产物 bin " + CountFiles(outputDir, "bin") + " 个 · rtlib " + CountFiles(outputDir, "rtlib") +
             " 个 · lib " + CountFiles(outputDir, "lib") + " 个。", Theme.TextSecondary);
@@ -804,7 +807,10 @@ internal sealed class BuildPage : Panel
         build.Enabled = editable;
         cancel.Enabled = running && !cancelled;
         packageToggle.Enabled = admin && !running;
-        upgrade.Enabled = admin && !running && !shellBusy && !string.IsNullOrEmpty(outputDir) &&
+        bool physicalAxis = model != null && model.IsEthercat;
+        upgrade.Visible = physicalAxis;
+        upgrade.Enabled = physicalAxis && outputDriver == ProjectMakefile.DriverEthercat &&
+            admin && !running && !shellBusy && !string.IsNullOrEmpty(outputDir) &&
             File.Exists(Path.Combine(outputDir, PackageName));
         choose.Enabled = !running && !shellBusy;
         guide.Enabled = !running && !shellBusy;
