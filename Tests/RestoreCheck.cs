@@ -15,6 +15,8 @@ internal static class RestoreCheck
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
     [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr after,
+        int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
@@ -107,6 +109,8 @@ internal static class RestoreCheck
             }
             if (window == IntPtr.Zero) { if (!process.HasExited) { process.Kill(); } throw new Exception("测试窗口未出现"); }
             ShowWindow(window, 9);
+            // 测试实例置顶，防止正在使用的桌面窗口遮住抓帧区域。
+            SetWindowPos(window, new IntPtr(-1), 0, 0, 0, 0, 0x0013);
             SetForegroundWindow(window);
             Thread.Sleep(600);
             if (args.Length > 4 && args[4] == "maximized")
@@ -119,7 +123,6 @@ internal static class RestoreCheck
                 Color body = baseline.GetPixel(baseline.Width * 3 / 4, 5);
                 if (Math.Abs(body.R - 241) > 3 || Math.Abs(body.G - 244) > 3 || Math.Abs(body.B - 247) > 3)
                 {
-                    baseline.Save(Path.Combine(args[1], "unexpected-start.png"));
                     SendMessage(window, 0x0010, IntPtr.Zero, IntPtr.Zero);
                     Console.WriteLine("FAIL 未抓到工具的实际画面");
                     return 1;

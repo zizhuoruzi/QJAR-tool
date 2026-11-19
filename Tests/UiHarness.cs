@@ -3,7 +3,7 @@ using System.IO;
 using System.Text;
 using System.Windows.Forms;
 
-/* 界面级回归：用进程内模拟控制器驱动真实页面，覆盖查询、注册、命令收发与手动重启。
+/* 界面级回归：用进程内模拟控制器驱动真实页面，覆盖查询、注册、命令收发与自动重启。
    与 Smoke.exe 的区别是这里走的是界面层的状态与日志更新。 */
 internal static class UiHarness
 {
@@ -17,16 +17,18 @@ internal static class UiHarness
         CheckProjectDiscovery();
         CheckAgentPrompt();
         CheckGuideForm();
-        RegisterPage.AutoRestart = false;
+        CheckLogFollow();
+        RegisterPage.AutoRestart = true;
         RegisterPage.PendantSshPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "FakeSsh.exe");
 
-        if (Admin.Matches("QJROBOT")) { Console.WriteLine("PASS 管理员口令 QJROBOT"); }
-        else { Fail("管理员口令 QJROBOT 未通过"); }
+        if (Admin.Matches("QJROBOT")) { Console.WriteLine("PASS 管理员认证"); }
+        else { Fail("管理员认证失败"); }
         if (!Admin.Matches("qjrobot")) { Console.WriteLine("PASS 错误口令被拒绝"); }
         else { Fail("错误的口令被接受"); }
 
         // 登录状态持久化：写进去能读出来，重启后能恢复。
-        string settingsPath = Path.Combine(Path.GetTempPath(), "QJAR-test-" + Guid.NewGuid().ToString("N") + ".ini");
+        string settingsDir = Path.Combine(Path.GetTempPath(), "QJAR-test-" + Guid.NewGuid().ToString("N"));
+        string settingsPath = Path.Combine(settingsDir, "settings.ini");
         AddressSettings.OverridePath = settingsPath;
         BuildSettings.OverridePath = Path.Combine(Path.GetTempPath(), "QJAR-build-" + Guid.NewGuid().ToString("N") + ".ini");
         try
@@ -36,17 +38,19 @@ internal static class UiHarness
             {
                 Ip1 = loopback.ToString(),
                 Port1 = "7625",
-                Admin = true,
+                BuildMode = 1,
+                Page = 3,
                 Profile = 0
             });
+            Admin.Remember();
             AddressSettings.Values saved = AddressSettings.Load();
-            if (saved.Admin && saved.Port1 == "7625" && saved.Ip2 == "192.168.1.200")
+            if (saved.BuildMode == 1 && saved.Page == 3 && saved.Port1 == "7625" && saved.Ip2 == "192.168.247.130")
             {
                 Console.WriteLine("PASS 登录状态与两套地址已写入");
             }
             else
             {
-                Fail("设置没有写入：" + saved.Ip1 + "/" + saved.Port1 + "/" + saved.Ip2 + "/" + saved.Admin);
+                Fail("设置没有写入：" + saved.Ip1 + "/" + saved.Port1 + "/" + saved.Ip2);
             }
 
             using (var restored = new MainForm(0))
@@ -55,7 +59,8 @@ internal static class UiHarness
                 else { Fail("重启后没有恢复管理员状态"); }
             }
 
-            AddressSettings.Save(new AddressSettings.Values { Ip1 = loopback.ToString(), Admin = false });
+            Admin.Forget();
+            AddressSettings.Save(new AddressSettings.Values { Ip1 = loopback.ToString() });
             using (var loggedOut = new MainForm(0))
             {
                 if (!loggedOut.IsAdmin) { Console.WriteLine("PASS 退出后不再恢复"); }
@@ -63,7 +68,7 @@ internal static class UiHarness
             }
 
             // 后续界面测试从“未登录”开始。
-            AddressSettings.Save(new AddressSettings.Values { Ip1 = loopback.ToString(), Admin = false });
+            AddressSettings.Save(new AddressSettings.Values { Ip1 = loopback.ToString() });
         }
         catch (Exception error)
         {
@@ -81,15 +86,15 @@ internal static class UiHarness
 
                 form.Register.FocusFirst();
                 bool queryHadFocus = form.Register.ContainsFocus;
-                // 两套地址：切到地址 2 应换成默认的 192.168.1.200，切回来要还原。
+                // 两套地址：切到地址 2 应换成默认的 192.168.247.130，切回来要还原。
                 form.SwitchProfileForTest(1);
                 if (!queryHadFocus || form.Register.ContainsFocus) { Console.WriteLine("PASS 切换地址不抢输入焦点"); }
                 else { Fail("切换地址抢走了查询按钮焦点"); }
                 string profileIp;
                 int profilePort;
-                if (form.TryGetAddress(out profileIp, out profilePort) && profileIp == "192.168.1.200")
+                if (form.TryGetAddress(out profileIp, out profilePort) && profileIp == "192.168.247.130")
                 {
-                    Console.WriteLine("PASS 地址 2 默认 192.168.1.200");
+                    Console.WriteLine("PASS 地址 2 默认 192.168.247.130");
                 }
                 else
                 {
@@ -148,6 +153,10 @@ internal static class UiHarness
                 }
                 form.Build.SaveVersionForTest("V4.0.6_test");
                 Check("编译页写回版本号", form.Build.VersionText, "V4.0.6_test");
+                var versionEdit = form.Build.VersionEditForTest;
+                versionEdit.Text = "V4.0.7_enter";
+                NativeMethods.SendMessage(versionEdit.Handle, 0x0100, new IntPtr((int)Keys.Enter), IntPtr.Zero);
+                Check("回车保存版本号", ProjectMakefile.Load(projectDir).Version, "V4.0.7_enter");
                 form.Build.SetTargetForTest("VIRTUAL_SERVO");
                 if (form.Build.LogText.Contains("VIRTUAL_SERVO")) { Console.WriteLine("PASS 编译页切换目标"); }
                 else { Fail("编译页切换目标没有生效：" + form.Build.LogText); }
@@ -169,6 +178,11 @@ internal static class UiHarness
                 }
                 Check("注册后状态", form.Register.PillText, "已授权");
                 Check("剩余天数", form.Register.DaysText, "365 天");
+                if (!form.Register.LogText.Contains("重启命令已发送"))
+                {
+                    Fail("注册后的示教器重启没有确认");
+                }
+                else { Console.WriteLine("PASS 注册后自动重启示教器（SSH 替身）"); }
 
                 form.Command.SendForTest("getsn", "");
                 if (!Wait(delegate { return !form.Command.Running; }, 10000)) { Fail("命令超时"); }
@@ -182,29 +196,39 @@ internal static class UiHarness
                     Console.WriteLine("PASS 命令收发");
                 }
 
-                // 手动重启示教器：用伪造 ssh.exe 验证 C 侧的进程、管道与判定逻辑。
-                form.Register.RestartForTest();
-                if (!Wait(delegate { return !form.Register.Running; }, 30000)) { Fail("重启超时"); }
-                Pump(300);
-                if (form.Register.LogText.Contains("重启命令已发送"))
-                {
-                    Console.WriteLine("PASS 手动重启示教器");
-                }
-                else
-                {
-                    Fail("手动重启未返回成功消息：" + form.Register.LogText);
-                }
-
                 form.Close();
             }
         }
 
         AddressSettings.OverridePath = null;
         BuildSettings.OverridePath = null;
-        try { File.Delete(settingsPath); } catch (IOException) { }
+        try { File.Delete(settingsPath); Directory.Delete(settingsDir); } catch (IOException) { }
 
         Console.WriteLine(failures == 0 ? "界面回归全部通过" : failures + " 项失败");
         return failures == 0 ? 0 : 1;
+    }
+
+    private static void CheckLogFollow()
+    {
+        using (var form = new Form())
+        using (var log = new LogView(""))
+        {
+            log.Dock = DockStyle.Fill;
+            form.Controls.Add(log);
+            form.ClientSize = new System.Drawing.Size(400, 160);
+            form.Show();
+            for (int i = 0; i < 45; i++) { log.Append("构建日志 " + i, Theme.TextPrimary); }
+            Pump(60);
+            var origin = new System.Drawing.Point(5, 5);
+            if (log.Box.GetCharIndexFromPosition(origin) == 0) { Fail("追加日志没有跟随底部"); }
+            NativeMethods.SendMessage(log.Box.Handle, 0x0115, new IntPtr(6), IntPtr.Zero);
+            Pump(60);
+            int position = log.Box.GetCharIndexFromPosition(origin);
+            log.Append("向上翻阅时追加一行", Theme.TextPrimary);
+            Pump(60);
+            if (log.Box.GetCharIndexFromPosition(origin) != position) { Fail("追加日志抢走了阅读位置"); }
+            else { Console.WriteLine("PASS 日志跟随底部并保留翻阅位置"); }
+        }
     }
 
     /* 指引窗口：链接可点、停在命令框上时滚轮仍能带动整页。 */

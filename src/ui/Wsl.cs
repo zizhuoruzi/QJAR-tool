@@ -90,24 +90,36 @@ internal static class Wsl
         return null;
     }
 
-    internal static string BuildArguments(string distro, string projectDir, bool package)
+    internal static string BuildArguments(string distro, string projectDir, bool package, string buildId)
     {
+        const string command = "printf 'QJAR build group: %s\\n' $$; bash \"$@\"; exit $?";
         var builder = new StringBuilder();
-        builder.Append("-d ").Append(DistroName(distro)).Append(" -u root --exec bash ").Append(ScriptPath);
+        builder.Append("-d ").Append(DistroName(distro)).Append(" -u root --exec setsid --fork --wait bash -c ")
+            .Append(Quote(command.Replace("\"", "\\\""))).Append(' ').Append(buildId).Append(' ').Append(ScriptPath);
         builder.Append(' ').Append(Quote(TrimTrailingSlash(projectDir)));
         if (package) { builder.Append(" --package"); }
         return builder.ToString();
     }
 
-    /* 取消时按本次构建的工作目录名精确终止，避免杀掉同一发行版里的其他 WSL 任务。 */
-    internal static void KillBuild(string distro, string workName)
+    /* 先通过进程组首领的参数验证构建标识，再结束整组 bash、make 和编译器进程 */
+    internal static string KillBuild(string distro, int processGroup, string buildId)
     {
-        if (string.IsNullOrEmpty(workName)) { return; }
+        const string command =
+            "if ! grep -Fxzq -- \"$2\" \"/proc/$1/cmdline\" 2>/dev/null; then " +
+            "if kill -0 -- -$1 2>/dev/null; then exit 2; fi; exit 0; fi; " +
+            "kill -TERM -- -$1 2>/dev/null || exit 0; " +
+            "for i in {1..10}; do kill -0 -- -$1 2>/dev/null || exit 0; sleep 0.1; done; " +
+            "if kill -0 -- -$1 2>/dev/null; then kill -KILL -- -$1; fi";
         string output;
         int exit;
         string failure;
-        RunQuiet("-d " + DistroName(distro) + " -u root --exec pkill -TERM -f " + Quote(workName), 15000,
-            out output, out exit, out failure);
+        if (!RunQuiet("-d " + DistroName(distro) + " -u root --exec bash -c " +
+            Quote(command.Replace("\"", "\\\"")) + " qjar-cancel " + processGroup + " " + buildId, 8000,
+            out output, out exit, out failure))
+        {
+            return failure;
+        }
+        return exit == 0 ? null : "无法确认或停止本次 WSL 构建进程组（退出码 " + exit + "）。";
     }
 
     internal static string Quote(string value)

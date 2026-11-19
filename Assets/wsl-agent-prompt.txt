@@ -1,9 +1,11 @@
-请把这台 Windows x64 电脑的 WSL 编译环境准备好，供 QJAR 工具“编译”页使用。目标发行版：{{DISTRO}}。范围为同代际 32 位 xeno-x86 控制器工程（ETHERCAT_X86 / VIRTUAL_SERVO），不是 ARM 或实时运行环境。
+请把这台 Windows x64 电脑的 WSL 编译环境准备好，供 QJAR 工具“编译”页使用。生成这份提示词时，QJAR 对应的命令参数是 -d {{DISTRO}}。接收方以本机实际注册的名称为准。范围为同代际 32 位 xeno-x86 控制器工程（ETHERCAT_X86 / VIRTUAL_SERVO），不是 ARM 或实时运行环境。
 
 先只读检查已有环境。保留现有 WSL 发行版、编译器与数据，已有 /opt/qjar-build/ubuntu12-i686 时先验证，不覆盖、不删除。需要系统提权、修改 BIOS 或重启电脑时，按当前宿主的权限政策停下来交给我。只准备本机环境，不连接、升级或运行控制器。
 
 1. 检查 WSL 与磁盘。
-运行 wsl.exe -l -v，确认 {{DISTRO}} 使用 WSL 2。没有 WSL 时再准备 wsl.exe --install --no-distribution；没有 {{DISTRO}} 时再准备 wsl.exe --install -d {{DISTRO}}。已有 WSL 1 发行版的转换需我确认后才执行。Windows 和 WSL 所在盘都要有足够空间，建议至少 5 GB 空闲。
+先运行 wsl.exe -l -v，记下 NAME 和 VERSION。在已经注册的 WSL 2 Ubuntu 发行版中，优先复用通过第 5 步检查的编译环境；如果有多个可用环境，优先用 QJAR 本机配置指定的发行版，其次用列表中带 * 的默认发行版。没有就绪的编译环境时，按同样优先级选择已有的 WSL 2 Ubuntu 来准备；仍有多个候选且无法确定时，列出名称请我选择。仅有 WSL 1 Ubuntu 时，转换前征求我的确认。
+把选中发行版的完整 NAME 赋给 PowerShell 变量 $distro，例如列表里的 NAME 是 Ubuntu-26.04 时，使用 $distro = 'Ubuntu-26.04'。后续每条 wsl.exe -d 命令都使用 $distro。已经通过第 5 步环境检查的，跳过下载、解压、恢复，直接同步 QJAR 配置。
+没有 WSL 时再准备 wsl.exe --install --no-distribution；没有注册任何 Ubuntu 发行版时再准备 wsl.exe --install -d Ubuntu。安装后重新运行 wsl.exe -l -v，从列表读取实际注册名并确认 VERSION 为 2。Windows 和 WSL 所在盘都要有足够空间，建议至少 5 GB 空闲。
 
 2. 从公开 Release 下载环境包，无需 GitHub 登录。
 Release：https://github.com/zizhuoruzi/qj-wsl-env/releases/tag/wsl-env-v1
@@ -28,21 +30,23 @@ curl.exe --fail --location --output "$dir\SHA256SUMS.txt" 'https://github.com/zi
 4. 恢复并安装构建入口。
 这版 prepare-rootfs.sh 自动使用自身目录，不用改 archive_dir，不依赖任何“405 工程”路径。先把 $dir 转成 WSL 路径，并核对每条命令退出码。
 
-$linuxDir = (wsl.exe -d {{DISTRO}} --exec wslpath -u $dir).Trim()
-wsl.exe -d {{DISTRO}} -u root --exec bash "$linuxDir/prepare-rootfs.sh"
+$linuxDir = (wsl.exe -d $distro --exec wslpath -u $dir).Trim()
+wsl.exe -d $distro -u root --exec bash "$linuxDir/prepare-rootfs.sh"
 
 恢复脚本会先核对内部 SHA-256，在临时目录解压，编译并运行 32 位 C++ 程序，全部通过后才移入 /opt/qjar-build/ubuntu12-i686。目录已存在会拒绝覆盖：此时验证已有环境并汇报，不为了继续而删目录。
 包里已经带构建脚本，不用另找控制器工程仓库：确认恢复或已有环境正常后执行
 
-wsl.exe -d {{DISTRO}} -u root --exec install -m 755 "$linuxDir/build-controller.sh" /opt/qjar-build/build-controller.sh
+wsl.exe -d $distro -u root --exec install -m 755 "$linuxDir/build-controller.sh" /opt/qjar-build/build-controller.sh
 
 5. 验证并汇报。
-运行下面三条，均应退出 0；同时核对安装入口与解压出来的 build-controller.sh 的 SHA-256 相同。
+运行下面三条，均应退出 0；如果本次安装了构建入口，同时核对它与解压出来的 build-controller.sh 的 SHA-256 相同。
 
-wsl.exe -d {{DISTRO}} -u root --exec test -x /opt/qjar-build/build-controller.sh
-wsl.exe -d {{DISTRO}} -u root --exec test -f /opt/qjar-build/ubuntu12-i686/lib/modules/3.14.17-xenomai/build/Module.symvers
-wsl.exe -d {{DISTRO}} -u root --exec setarch linux32 chroot /opt/qjar-build/ubuntu12-i686 /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/gcc-4.6 --version
+wsl.exe -d $distro -u root --exec test -x /opt/qjar-build/build-controller.sh
+wsl.exe -d $distro -u root --exec test -f /opt/qjar-build/ubuntu12-i686/lib/modules/3.14.17-xenomai/build/Module.symvers
+wsl.exe -d $distro -u root --exec setarch linux32 chroot /opt/qjar-build/ubuntu12-i686 /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/gcc-4.6 --version
 
-最终简要列出：发行版名和 WSL 版本、下载文件大小与 SHA-256、校验/解压/恢复退出码、GCC 版本、目标内核文件是否存在、构建入口哈希，以及是否还需要我重启或操作 BIOS。保留可复查的失败日志，不用“环境应该好了”替代验证。
+验证通过后，将 QJAR 的 %LOCALAPPDATA%\QJAR\build.ini 中的 distro= 设置为 $distro 的实际值，例如 distro=Ubuntu-26.04。没有配置文件就创建，已有文件只新增或更新 distro 一项，保留其余设置。已打开 QJAR 时，保存配置后重新启动工具，再在「环境准备」里点击「检查环境」。
+
+最终简要列出：实际发行版名和 WSL 版本、QJAR 配置路径及 distro 值、GCC 版本、目标内核文件和构建入口的验证结果，以及是否还需要我重启或操作 BIOS。执行过下载、解压或恢复时，附上文件大小、SHA-256 和相应退出码。保留可复查的失败日志。
 
 chroot 只用于固定旧工具链路径，不是安全沙箱；以后只编译可信的工程。额外库/SDK 由具体工程提供。此次不执行 make clean/install/up，不自动编译、运行或部署控制器。

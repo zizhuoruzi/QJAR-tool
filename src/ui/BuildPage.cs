@@ -11,8 +11,9 @@ using System.Windows.Forms;
    成功后由构建脚本打包出 control_update.tar.gz。 */
 internal sealed class BuildPage : Panel
 {
-    private const string PackageName = "control_update.tar.gz";
-    private static readonly Regex OutputLine = new Regex(@"^Build output:\s*(?<path>\S+)\s*$",
+    private const string PackageName = SshUpgrade.ControllerPackage;
+    private const string BuildGroupPrefix = "QJAR build group: ";
+    private static readonly Regex OutputLine = new Regex(@"^Build output:\s*(?<path>.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private sealed class PendingLine
@@ -37,6 +38,7 @@ internal sealed class BuildPage : Panel
     private readonly ActionButton build = new ActionButton("开始构建", ButtonKind.Primary);
     private readonly ActionButton cancel = new ActionButton("取消", ButtonKind.Quiet);
     private readonly ActionButton packageToggle = new ActionButton("打包：开", ButtonKind.Secondary);
+    private readonly ActionButton upgrade = new ActionButton("升级控制器", ButtonKind.Secondary);
     private readonly StatusPill statePill = new StatusPill();
     private readonly ProgressBar progress = new ProgressBar();
     private readonly Label phaseText = Caption("等待开始");
@@ -64,8 +66,8 @@ internal sealed class BuildPage : Panel
     private bool admin;
     private bool running;
     private bool shellBusy;
-    private bool cancelled;
-    private WslRunner runner;
+    private volatile bool cancelled;
+    private volatile int processGroup;
     private int phase;              // 0 准备 / 1 编译 / 2 校验产物 / 3 打包 / 4 打包完成
 
     internal BuildPage(MainForm shell)
@@ -80,11 +82,19 @@ internal sealed class BuildPage : Panel
             using (var dialog = new WslGuideForm(distro)) { dialog.ShowDialog(this); }
         };
         saveVersion.Click += delegate { SaveVersion(); };
+        versionField.Accepted += delegate { SaveVersion(); };
         ethercat.Click += delegate { SetTarget(ProjectMakefile.DriverEthercat); };
         virtualServo.Click += delegate { SetTarget(ProjectMakefile.DriverVirtual); };
         build.Click += delegate { StartBuild(); };
         cancel.Click += delegate { CancelBuild(); };
         packageToggle.Click += delegate { TogglePackage(); };
+        upgrade.Click += delegate
+        {
+            if (!string.IsNullOrEmpty(outputDir))
+            {
+                shell.UpgradeBuildPackage(Path.Combine(outputDir, PackageName));
+            }
+        };
         clearLog.Click += delegate { log.Clear(); };
         exportLog.Click += delegate { ExportLog(); };
         openDir.Click += delegate { OpenOutputDir(); };
@@ -97,7 +107,7 @@ internal sealed class BuildPage : Panel
         settingCard.Controls.AddRange(new Control[]
         {
             versionCaption, versionField, saveVersion, targetCaption, ethercat, virtualServo,
-            build, cancel, packageToggle, statePill, progress, phaseText, elapsedText
+            build, cancel, packageToggle, upgrade, statePill, progress, phaseText, elapsedText
         });
         logCard.Controls.AddRange(new Control[] { log, clearLog, exportLog, openDir });
 
@@ -144,20 +154,21 @@ internal sealed class BuildPage : Panel
         SaveVersion();
     }
 
+    internal TextBox VersionEditForTest { get { return versionField.Edit; } }
+
     internal void SetTargetForTest(string driver) { SetTarget(driver); }
 
     internal void BuildForTest() { StartBuild(); }
 
     internal void CancelForTest() { CancelBuild(); }
 
-    /* 关窗时停止正在跑的构建：先结束 wsl.exe，再按工作目录名在 WSL 侧收尾。 */
+    /* 关窗时通知构建线程停止 WSL 进程组 */
     internal void StopWork()
     {
-        if (!running) { return; }
-        cancelled = true;
-        var handle = runner;
-        if (handle != null) { handle.Kill(); }
-        Wsl.KillBuild(distro, workName);
+        if (running)
+        {
+            cancelled = true;
+        }
     }
 
     internal string OutputDirForTest { get { return outputDir; } }
@@ -190,13 +201,13 @@ internal sealed class BuildPage : Panel
         int bar = Theme.S(Theme.SizeLg);
         int field = Theme.S(Theme.SizeMd);
 
-        projectCard.SetBounds(pad, pad, width, Theme.S(112));
+        projectCard.SetBounds(pad, pad, width, Theme.S(98));
         int top = projectCard.ContentTop;
         choose.SetBounds(projectCard.Width - cardPad - Theme.S(96), top, Theme.S(96), field);
         guide.SetBounds(choose.Left - Theme.S(Theme.Space2) - Theme.S(88), top, Theme.S(88), field);
         projectField.SetBounds(cardPad, top, guide.Left - Theme.S(Theme.Space2) - cardPad, field);
 
-        settingCard.SetBounds(pad, projectCard.Bottom + gap, width, Theme.S(248));
+        settingCard.SetBounds(pad, projectCard.Bottom + gap, width, Theme.S(225));
         int y = settingCard.ContentTop;
         versionCaption.SetBounds(cardPad, y + Theme.S(7), Theme.S(56), Theme.S(18));
         saveVersion.SetBounds(settingCard.Width - cardPad - Theme.S(64), y, Theme.S(64), field);
@@ -212,6 +223,7 @@ internal sealed class BuildPage : Panel
         build.SetBounds(cardPad, row3, Theme.S(108), bar);
         cancel.SetBounds(build.Right + Theme.S(Theme.Space2), row3, Theme.S(72), bar);
         packageToggle.SetBounds(cancel.Right + Theme.S(Theme.Space2), row3, Theme.S(96), bar);
+        upgrade.SetBounds(settingCard.Width - cardPad - Theme.S(104), row2, Theme.S(104), field);
         statePill.SetBounds(settingCard.Width - cardPad - statePill.Width,
             row3 + (bar - statePill.Height) / 2, statePill.Width, statePill.Height);
 
@@ -331,6 +343,11 @@ internal sealed class BuildPage : Panel
 
     private void LoadProject(string path, bool announce)
     {
+        if (!string.Equals(projectDir, path ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+        {
+            outputDir = null;
+            openDir.Enabled = false;
+        }
         projectDir = path ?? string.Empty;
         projectField.Text = projectDir;
         try
@@ -460,6 +477,7 @@ internal sealed class BuildPage : Panel
         bool doPackage = package;
         running = true;
         cancelled = false;
+        processGroup = 0;
         outputDir = null;
         workName = null;
         lastLine = null;
@@ -482,8 +500,8 @@ internal sealed class BuildPage : Panel
         Append("WSL " + distro + " · 目标 " + model.Driver + " · 版本 " + model.Version +
             (doPackage ? " · 编译后打包" : " · 仅编译"), Theme.TextSecondary);
 
+        // 关窗后仍让构建线程完成 WSL 进程组的停止操作
         var thread = new Thread(delegate() { RunBuild(targetDistro, dir, doPackage); });
-        thread.IsBackground = true;
         thread.Start();
     }
 
@@ -508,7 +526,7 @@ internal sealed class BuildPage : Panel
                     (distributions.Length == 0 ? "无" : string.Join("、", distributions)) + "）。";
                 environment = true;
             }
-            else
+            else if (!cancelled)
             {
                 string check = Wsl.CheckEnvironment(targetDistro);
                 if (check != null)
@@ -516,20 +534,35 @@ internal sealed class BuildPage : Panel
                     error = check;
                     environment = true;
                 }
-                else
+                else if (!cancelled)
                 {
                     Post(delegate { Append("启动 WSL 构建…", Theme.TextSecondary); });
-                    var handle = new WslRunner();
-                    handle.Line += OnLine;
-                    runner = handle;
-                    if (!handle.Start(Wsl.BuildArguments(targetDistro, dir, doPackage)))
+                    string buildId = "qjar-build-" + Guid.NewGuid().ToString("N");
+                    using (var handle = new WslRunner())
                     {
-                        error = "无法启动 wsl.exe。";
-                    }
-                    else
-                    {
-                        handle.WaitForExit(-1);
-                        exit = handle.ExitCode;
+                        handle.Line += OnLine;
+                        if (!handle.Start(Wsl.BuildArguments(targetDistro, dir, doPackage, buildId)))
+                        {
+                            error = "无法启动 wsl.exe。";
+                        }
+                        else
+                        {
+                            bool stopAttempted = false;
+                            while (!handle.WaitForExit(100))
+                            {
+                                int group = processGroup;
+                                if (cancelled && !stopAttempted && group > 1)
+                                {
+                                    stopAttempted = true;
+                                    string failure = Wsl.KillBuild(targetDistro, group, buildId);
+                                    if (failure != null)
+                                    {
+                                        Post(delegate { Append("! 取消构建失败：" + failure, Theme.Error); });
+                                    }
+                                }
+                            }
+                            exit = handle.ExitCode;
+                        }
                     }
                 }
             }
@@ -546,22 +579,10 @@ internal sealed class BuildPage : Panel
     {
         if (!running || cancelled) { return; }
         cancelled = true;
-        var handle = runner;
-        if (handle != null) { handle.Kill(); }
         SetState("正在取消", Tone.Warning);
+        phaseText.Text = "正在取消";
+        UpdateEnabled();
         Append("正在停止构建…", Theme.Warning);
-        string targetDistro = distro;
-        string name = workName;
-        ThreadPool.QueueUserWorkItem(delegate
-        {
-            // 取消得早时工作目录名可能还没从日志里读出来，稍等一下再精确终止。
-            if (string.IsNullOrEmpty(name))
-            {
-                Thread.Sleep(1500);
-                name = workName;
-            }
-            Wsl.KillBuild(targetDistro, name);
-        });
     }
 
     private void Finish(int exit, string error, string dir, bool environment)
@@ -573,11 +594,8 @@ internal sealed class BuildPage : Panel
         elapsedText.Text = "已用时 " + FormatClock(clock.Elapsed);
         running = false;
         shell.SetBusy(false);
-        var handle = runner;
-        runner = null;
-        if (handle != null) { handle.Dispose(); }
-
-        if (cancelled)
+        if (cancelled && (exit == 9 || exit == 15 || exit == 137 || exit == 143 ||
+            (exit == -1 && error == null)))
         {
             progress.Tone = Tone.Warning;
             phaseText.Text = "已取消";
@@ -673,6 +691,11 @@ internal sealed class BuildPage : Panel
     private void OnElapsedTick()
     {
         if (!running) { elapsedTimer.Stop(); return; }
+        elapsedText.Text = "已用时 " + FormatClock(clock.Elapsed);
+        if (cancelled)
+        {
+            return;
+        }
         int cap = phase <= 0 ? 8 : phase == 1 ? 70 : phase == 2 ? 85 : phase == 3 ? 92 : 98;
         if (progress.Value < cap) { progress.Value = progress.Value + 1; }
         phaseText.Text = phase <= 0 ? "准备中"
@@ -680,7 +703,6 @@ internal sealed class BuildPage : Panel
             : phase == 2 ? "校验产物"
             : phase == 3 ? "打包中"
             : "打包完成";
-        elapsedText.Text = "已用时 " + FormatClock(clock.Elapsed);
     }
 
     private static string FormatClock(TimeSpan elapsed)
@@ -691,6 +713,14 @@ internal sealed class BuildPage : Panel
 
     private void OnLine(string line, bool isError)
     {
+        int group;
+        if (!isError && line.StartsWith(BuildGroupPrefix, StringComparison.Ordinal) &&
+            int.TryParse(line.Substring(BuildGroupPrefix.Length), out group) && group > 1)
+        {
+            processGroup = group;
+            return;
+        }
+
         lock (gate)
         {
             pending.Add(new PendingLine { Text = line, Error = isError });
@@ -772,8 +802,10 @@ internal sealed class BuildPage : Panel
         ethercat.Enabled = editable;
         virtualServo.Enabled = editable;
         build.Enabled = editable;
-        cancel.Enabled = running;
+        cancel.Enabled = running && !cancelled;
         packageToggle.Enabled = admin && !running;
+        upgrade.Enabled = admin && !running && !shellBusy && !string.IsNullOrEmpty(outputDir) &&
+            File.Exists(Path.Combine(outputDir, PackageName));
         choose.Enabled = !running && !shellBusy;
         guide.Enabled = !running && !shellBusy;
     }
@@ -872,14 +904,12 @@ internal sealed class BuildPage : Panel
     {
         if (disposing)
         {
+            StopWork();
             flushTimer.Stop();
             flushTimer.Dispose();
             elapsedTimer.Stop();
             elapsedTimer.Dispose();
             clock.Stop();
-            var handle = runner;
-            runner = null;
-            if (handle != null) { handle.Dispose(); }
         }
         base.Dispose(disposing);
     }

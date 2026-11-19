@@ -10,6 +10,35 @@
 
 下载公开；**解压密码由发布者授权提供**，本仓库、Release 和 agent 提示词均不包含密码。
 
+### 从 Gitee 仓库恢复环境包
+
+克隆后，在仓库根目录打开 PowerShell，按编号合并 `Environment` 中的 8 个分卷，并核对原包的 SHA-256：
+
+```powershell
+$dir = Join-Path $env:USERPROFILE 'Downloads\qj-wsl-env'
+$archive = Join-Path $dir 'qj-wsl-env.7z'
+$parts = @(1..8 | ForEach-Object { ".\Environment\qj-wsl-env.7z.{0:D3}" -f $_ })
+$expected = ((Get-Content -LiteralPath '.\Environment\SHA256SUMS.txt' -Raw).Trim() -split '\s+')[0]
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+if (-not (Test-Path -LiteralPath $archive)) {
+    $paths = @(Resolve-Path -LiteralPath $parts -ErrorAction Stop)
+    $output = [System.IO.File]::Open($archive, 'CreateNew')
+    try {
+        foreach ($path in $paths) {
+            $inputStream = [System.IO.File]::OpenRead($path.Path)
+            try { $inputStream.CopyTo($output) }
+            finally { $inputStream.Dispose() }
+        }
+    }
+    finally { $output.Dispose() }
+}
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash -ne $expected) {
+    throw "SHA-256 校验失败，请检查 $archive 和各个分卷"
+}
+```
+
+校验通过后，从下文的 7-Zip 解压步骤继续。
+
 ## 内容
 
 - Ubuntu 12.04 i686 的 GCC/G++ 4.6.3、glibc 2.15、make 3.81。
@@ -59,7 +88,20 @@ if ($LASTEXITCODE -ne 0) { throw '构建入口安装失败' }
 wsl.exe -d Ubuntu -u root --exec bash /opt/qjar-build/build-controller.sh 'D:\控制器工程\cx-v3.0' --package
 ```
 
-产物位于工程自己的 `build-wsl/controller.<编号>/control_update.tar.gz`，同时保存编译日志、源码校验结果和 `result.json`。构建不执行 `make clean/install/up`，不连接或部署到控制器。
+产物位于工程自己的 `build-wsl/controller.<编号>/`。目录保存编译日志、源码校验结果、`result.json`，并在打包时保存 `control_update.tar.gz`。本次构建使用的 `Makefile` 和构建目录中存在的 `version_info` 保存在产物目录的 `src/` 下。
+
+成功导出后，构建入口删除本次在 WSL 中创建的工作目录。构建失败、取消或导出失败时，工作目录会保留供排查。导出的 `guest-workdir.txt` 仍记录本次使用过的路径。
+
+已恢复环境的用户可在 QJAR 仓库根目录将构建入口更新为本仓库的版本。将 `Ubuntu` 替换为 QJAR 中选择的 WSL 发行版名称：
+
+```powershell
+$entry = (wsl.exe -d Ubuntu --exec wslpath -u (Resolve-Path -LiteralPath '.\Environment\build-controller.sh').Path).Trim()
+if ($LASTEXITCODE -ne 0) { throw '构建入口路径转换失败' }
+wsl.exe -d Ubuntu -u root --exec install -m 755 $entry /opt/qjar-build/build-controller.sh
+if ($LASTEXITCODE -ne 0) { throw '构建入口更新失败' }
+```
+
+构建不执行 `make clean/install/up`，不连接或部署到控制器。
 
 ## 边界和来源
 

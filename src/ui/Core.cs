@@ -27,6 +27,8 @@ internal sealed class CoreCancel : IDisposable
 
     internal IntPtr Handle { get { return gate.SafeWaitHandle.DangerousGetHandle(); } }
 
+    internal bool IsCancellationRequested { get { return gate.WaitOne(0); } }
+
     internal void Cancel() { gate.Set(); }
 
     public void Dispose()

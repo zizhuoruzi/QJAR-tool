@@ -1,3 +1,4 @@
+using System.IO;
 using System;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -40,6 +41,43 @@ internal static class Admin
             Array.Clear(bytes, 0, bytes.Length);
             Array.Clear(actual, 0, actual.Length);
         }
+    }
+
+    private static readonly byte[] SessionPurpose = Encoding.ASCII.GetBytes("QJAR/AdminSession/v1");
+
+    private static string SessionPath { get { return Path.Combine(AddressSettings.SettingsDirectory, "admin-session.dat"); } }
+
+    internal static bool IsRemembered()
+    {
+        try
+        {
+            byte[] protectedSession = File.ReadAllBytes(SessionPath);
+            byte[] session = ProtectedData.Unprotect(protectedSession, SessionPurpose, DataProtectionScope.CurrentUser);
+            return SameSession(session);
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+        catch (CryptographicException) { return false; }
+    }
+
+    internal static void Remember()
+    {
+        byte[] session = ProtectedData.Protect(Expected, SessionPurpose, DataProtectionScope.CurrentUser);
+        AddressSettings.WriteAtomic(SessionPath, session);
+    }
+
+    internal static void Forget()
+    {
+        try { File.Delete(SessionPath); }
+        catch (DirectoryNotFoundException) { }
+    }
+
+    private static bool SameSession(byte[] session)
+    {
+        if (session.Length != Expected.Length) { return false; }
+        int diff = 0;
+        for (int i = 0; i < session.Length; i++) { diff |= session[i] ^ Expected[i]; }
+        return diff == 0;
     }
 
     [DllImport("bcrypt.dll", CharSet = CharSet.Unicode)]

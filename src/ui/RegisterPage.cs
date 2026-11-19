@@ -1,3 +1,5 @@
+using System.IO;
+using System.Threading.Tasks;
 using System;
 using System.Drawing;
 using System.Threading;
@@ -17,7 +19,12 @@ internal sealed class RegisterPage : Panel
     private readonly Card actionCard = new Card("操作");
     private readonly ActionButton query = new ActionButton("查询状态", ButtonKind.Secondary);
     private readonly ActionButton register = new ActionButton("注册设备", ButtonKind.Primary);
-    private readonly ActionButton restart = new ActionButton("重启示教器", ButtonKind.Secondary);
+    private readonly Card pendantCard = new Card("示教器");
+    private readonly SegmentedTabs pendantMode = new SegmentedTabs("实体", "本机虚拟") { Vertical = false };
+    private readonly Label physicalAddress = Caption("192.168.1.200");
+    private readonly TextField pendantPath = new TextField("选择 rbt_gui.exe");
+    private readonly ActionButton browsePendant = new ActionButton("浏览", ButtonKind.Secondary);
+    private readonly ActionButton openPendant = new ActionButton("打开示教器", ButtonKind.Secondary);
     private readonly ActionButton cancel = new ActionButton("取消", ButtonKind.Quiet);
     private readonly ProgressBar progress = new ProgressBar();
     private readonly Label progressText = Caption("等待操作");
@@ -45,14 +52,20 @@ internal sealed class RegisterPage : Panel
 
         query.Click += delegate { Start(false); };
         register.Click += delegate { Start(true); };
-        restart.Click += delegate { Restart(); };
+        pendantPath.IsReadOnly = true;
+        pendantPath.Text = AddressSettings.LoadPendantPath();
+        browsePendant.Click += delegate { BrowsePendant(); };
+        openPendant.Click += async delegate { await TogglePendant(); };
+        pendantMode.SelectedIndexChanged += delegate { LayoutPage(); UpdatePendantButtons(); shell.SavePreferences(); };
+        VisibleChanged += delegate { if (Visible) { UpdatePendantButtons(); } };
+        pendantCard.Controls.AddRange(new Control[] { pendantMode, physicalAddress, pendantPath, browsePendant, openPendant });
         cancel.Click += delegate { CancelOperation(); };
         clearLog.Click += delegate { log.Clear(); };
         exportLog.Click += delegate { ExportLog(); };
 
         Controls.AddRange(new Control[]
         {
-            deviceCard, actionCard, logCard
+            deviceCard, pendantCard, actionCard, logCard
         });
         deviceCard.Controls.AddRange(new Control[]
         {
@@ -60,7 +73,7 @@ internal sealed class RegisterPage : Panel
         });
         actionCard.Controls.AddRange(new Control[]
         {
-            query, register, restart, cancel, progress, progressText, progressPercent, banner
+            query, register, cancel, progress, progressText, progressPercent, banner
         });
         logCard.Controls.AddRange(new Control[] { log, exportLog, clearLog });
 
@@ -78,7 +91,8 @@ internal sealed class RegisterPage : Panel
 
     internal void RegisterForTest() { Start(true); }
 
-    internal void RestartForTest() { Restart(); }
+    internal void SetPendantMode(bool value) { pendantMode.SelectedIndex = value ? 1 : 0; }
+    internal bool VirtualPendant { get { return pendantMode.SelectedIndex == 1; } }
 
     internal string PillText { get { return statePill.Caption; } }
 
@@ -96,7 +110,7 @@ internal sealed class RegisterPage : Panel
     {
         if (running) { return; }
         register.Enabled = admin;
-        restart.Enabled = admin;
+        UpdatePendantButtons();
     }
 
     internal void SetBusy(bool busy)
@@ -104,7 +118,8 @@ internal sealed class RegisterPage : Panel
         running = busy;
         query.Enabled = !busy;
         register.Enabled = !busy && shell.IsAdmin;
-        restart.Enabled = !busy && shell.IsAdmin;
+        pendantMode.Enabled = !busy;
+        UpdatePendantButtons();
         cancel.Enabled = busy;
     }
 
@@ -156,15 +171,25 @@ internal sealed class RegisterPage : Panel
             Theme.S(Theme.FontBase) + Theme.S(6));
 
         int actionHeight = banner.Visible ? Theme.S(187) : Theme.S(153);
-        actionCard.SetBounds(pad, deviceCard.Bottom + gap, width, actionHeight);
+        int pendantTop = pendantCard.ContentTop;
+        pendantCard.SetBounds(pad, deviceCard.Bottom + gap, width,
+            pendantTop + (VirtualPendant ? bar * 2 + Theme.S(18) : bar + Theme.S(14)));
+        pendantMode.SetBounds(cardPad, pendantTop, Theme.S(165), bar);
+        physicalAddress.SetBounds(pendantMode.Right + Theme.S(10), pendantTop, Theme.S(120), bar);
+        physicalAddress.Visible = !VirtualPendant;
+        pendantPath.Visible = browsePendant.Visible = openPendant.Visible = VirtualPendant;
+        int pathTop = pendantMode.Bottom + Theme.S(6);
+        openPendant.SetBounds(width - cardPad - Theme.S(109), pathTop, Theme.S(109), bar);
+        browsePendant.SetBounds(openPendant.Left - Theme.S(70), pathTop, Theme.S(62), bar);
+        pendantPath.SetBounds(cardPad, pathTop, Math.Max(0, browsePendant.Left - cardPad - Theme.S(8)), bar);
+
+        actionCard.SetBounds(pad, pendantCard.Bottom + gap, width, actionHeight);
         int actionTop = actionCard.ContentTop;
         int x = cardPad;
         query.SetBounds(x, actionTop, Theme.S(108), bar);
         x = query.Right + Theme.S(Theme.Space2);
         register.SetBounds(x, actionTop, Theme.S(108), bar);
         x = register.Right + Theme.S(Theme.Space2);
-        restart.SetBounds(x, actionTop, Theme.S(128), bar);
-        x = restart.Right + Theme.S(Theme.Space2);
         cancel.SetBounds(x, actionTop, Theme.S(84), bar);
 
         int progressTop = actionTop + bar + Theme.S(Theme.Space5);
@@ -197,6 +222,13 @@ internal sealed class RegisterPage : Panel
         int port;
         if (!shell.TryGetAddress(out ip, out port)) { return; }
 
+        bool virtualTarget = VirtualPendant;
+        string virtualPath = pendantPath.Text;
+        if (activate && virtualTarget && !File.Exists(virtualPath))
+        {
+            ShowBanner(Tone.Error, "请先选择本机虚拟示教器。");
+            return;
+        }
         HideBanner();
         log.Clear();
         Append("连接 " + ip + ":" + port);
@@ -222,7 +254,8 @@ internal sealed class RegisterPage : Panel
                     Notify, handle.Handle);
                 if (activate && AutoRestart && result.Outcome == CoreOutcome.Ok && result.Submitted)
                 {
-                    restartMessage = Core.RestartPendant(true, port, Notify, handle.Handle, PendantSshPath);
+                    restartMessage = virtualTarget ? RestartWindowsPendant(virtualPath, handle)
+                        : Core.RestartPendant(true, port, Notify, handle.Handle, PendantSshPath);
                 }
             }
             catch (Exception error)
@@ -298,48 +331,63 @@ internal sealed class RegisterPage : Panel
         }
     }
 
-    private void Restart()
+    private void UpdatePendantButtons()
     {
+        browsePendant.Enabled = !running;
+        openPendant.Enabled = !running && pendantPath.Text.Length > 0;
         if (running) { return; }
-        if (!shell.IsAdmin)
+        try { openPendant.Text = WindowsPendant.IsRunning(pendantPath.Text) ? "关闭示教器" : "打开示教器"; }
+        catch (Exception) { openPendant.Text = "打开示教器"; }
+    }
+
+    private void BrowsePendant()
+    {
+        using (var dialog = new OpenFileDialog())
         {
-            ShowBanner(Tone.Error, "请先登录管理员。");
-            return;
+            dialog.Title = "选择本机虚拟示教器";
+            dialog.Filter = "虚拟示教器 (rbt_gui.exe)|rbt_gui.exe";
+            dialog.FileName = WindowsPendant.FileName;
+            if (File.Exists(pendantPath.Text)) { dialog.InitialDirectory = Path.GetDirectoryName(pendantPath.Text); }
+            if (dialog.ShowDialog(this) != DialogResult.OK) { return; }
+            try { SetPendantPath(WindowsPendant.ResolvePath(dialog.FileName)); }
+            catch (Exception error) when (error is IOException || error is ArgumentException)
+            {
+                ShowBanner(Tone.Error, error.Message);
+            }
         }
-        shell.SetBusy(true);
-        Append("正在重启示教器 192.168.1.200。", Theme.TextSecondary);
-        statePill.Caption = "正在重启示教器";
-        statePill.Tone = Tone.Info;
-        cancelHandle = new CoreCancel();
-        CoreCancel handle = cancelHandle;
-        var thread = new Thread(delegate()
+    }
+
+    private void SetPendantPath(string path)
+    {
+        try { AddressSettings.SavePendantPath(path); }
+        catch (Exception error) when (error is IOException || error is UnauthorizedAccessException)
         {
-            string message;
-            try
-            {
-                message = Core.RestartPendant(false, 7625, Notify, handle.Handle, PendantSshPath);
-            }
-            catch (Exception error)
-            {
-                message = "重启示教器失败：" + error.Message;
-            }
-            try
-            {
-                BeginInvoke((Action)delegate
-                {
-                    if (cancelHandle != null) { cancelHandle.Dispose(); cancelHandle = null; }
-                    shell.SetBusy(false);
-                    Append(message, Theme.TextPrimary);
-                    statePill.Caption = message;
-                    statePill.Tone = Tone.Neutral;
-                });
-            }
-            catch (Exception)
-            {
-            }
-        });
-        thread.IsBackground = true;
-        thread.Start();
+            Append("示教器路径保存失败：" + error.Message, Theme.Warning);
+        }
+        pendantPath.Text = path;
+        UpdatePendantButtons();
+    }
+
+    private async Task TogglePendant()
+    {
+        if (!openPendant.Enabled) { return; }
+        string path = pendantPath.Text;
+        shell.SetBusy(true);
+        cancel.Enabled = false;
+        try { Append(await Task.Run(() => WindowsPendant.Toggle(path))); }
+        catch (Exception error)
+        {
+            Append("示教器操作失败：" + error.Message, Theme.Error);
+            ShowBanner(Tone.Error, error.Message);
+        }
+        finally { shell.SetBusy(false); }
+    }
+
+    private static string RestartWindowsPendant(string path, CoreCancel cancel)
+    {
+        if (cancel.IsCancellationRequested) { return "示教器重启已取消。"; }
+        try { return WindowsPendant.Open(path, true); }
+        catch (Exception error) { return "重启本机虚拟示教器失败：" + error.Message; }
     }
 
     private void CancelOperation()

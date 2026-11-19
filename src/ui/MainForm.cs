@@ -7,13 +7,15 @@ using System.Windows.Forms;
    UI 规格见 Docs/astryx-ui-spec.md。 */
 internal sealed class MainForm : Form
 {
+    internal const string WindowTitle = "QJAR 工具";
+    private static readonly int[] PageOrder = { 2, 0, 1, 3 };
     private const int DefaultPort = 7625;
     private const int DefaultTimeout = 5000;
 
     private readonly Panel sidebar = new Panel();
     private readonly Panel workspace = new Panel();
-    private readonly SegmentedTabs tabs = new SegmentedTabs("注册", "命令调试", "编译");
-    private readonly SegmentedTabs profiles = new SegmentedTabs("地址 1", "地址 2");
+    private readonly SegmentedTabs tabs = new SegmentedTabs("编译", "注册", "命令调试", "升级") { SlideSelection = true };
+    private readonly SegmentedTabs profiles = new SegmentedTabs("实体控制器", "Ubuntu 虚拟机");
     private readonly Label addressCaption = new Label();
     private readonly TextField[] octets = new TextField[4];
     private readonly int[] dotLeft = new int[3];
@@ -30,6 +32,7 @@ internal sealed class MainForm : Form
     private int profile;
     private bool applyingProfile;
     private bool editingAddress;
+    private bool validatingAddress;
     private readonly ActionButton adminButton = new ActionButton("管理员登录", ButtonKind.Secondary);
     private readonly TextField passwordField = new TextField("管理员密码");
     private readonly ActionButton passwordOk = new ActionButton("登录", ButtonKind.Primary);
@@ -37,6 +40,12 @@ internal sealed class MainForm : Form
     private readonly RegisterPage registerPage;
     private readonly CommandPage commandPage;
     private readonly BuildPage buildPage;
+    private readonly RemoteBuildPage remoteBuild;
+    private readonly Panel buildWorkspace = new Panel { BackColor = Theme.Body };
+    private readonly SegmentedTabs buildModes = new SegmentedTabs("本机 WSL", "Ubuntu 远程") { Vertical = false };
+    private readonly Label remoteTarget = new Label { ForeColor = Theme.TextSecondary, TextAlign = ContentAlignment.MiddleRight };
+    private int currentPage = 2;
+    private readonly UpgradePage upgradePage;
 
     private bool built;
     private bool restoring;
@@ -93,7 +102,7 @@ internal sealed class MainForm : Form
 
     internal MainForm(int initialPage)
     {
-        Text = "QJAR 工具";
+        Text = WindowTitle;
         BackColor = Theme.Body;
         Font = Theme.Body14;
         AutoScaleMode = AutoScaleMode.None;
@@ -114,10 +123,12 @@ internal sealed class MainForm : Form
         registerPage = new RegisterPage(this);
         commandPage = new CommandPage(this);
         buildPage = new BuildPage(this);
+        remoteBuild = new RemoteBuildPage(this);
+        upgradePage = new UpgradePage(this);
         BuildUi();
         LoadSettings();
         SetBusy(false);
-        SelectPage(initialPage >= 0 && initialPage <= 2 ? initialPage : 0, true);
+        SelectPage(initialPage >= 0 && initialPage <= 3 ? initialPage : currentPage, true);
     }
 
     /* 仅供测试程序驱动界面，发布版不会用到。 */
@@ -140,6 +151,20 @@ internal sealed class MainForm : Form
     // ---- 供页面读取的共享状态 -----------------------------------------------
     internal bool IsAdmin { get { return admin; } }
 
+    internal string ControllerIp { get { return editingAddress ? string.Join(".", savedOctets) : ReadAddressText(); } }
+
+    internal bool IsBusy { get { return busy; } }
+    internal void SavePreferences() { if (built && !restoring) { SaveSettings(); } }
+
+    internal void UpgradeBuildPackage(string path)
+    {
+        if (admin && !busy)
+        {
+            SelectPage(3);
+            upgradePage.UpgradeBuildPackage(path);
+        }
+    }
+
     internal int TimeoutMs
     {
         get { return timeoutMs; }
@@ -154,6 +179,11 @@ internal sealed class MainForm : Form
 
     internal bool TryGetAddress(out string ip, out int port)
     {
+        if (editingAddress && !validatingAddress)
+        {
+            ip = string.Join(".", savedOctets);
+            return int.TryParse(savedPort, out port);
+        }
         ip = null;
         port = 0;
         for (int i = 0; i < 4; i++)
@@ -224,6 +254,10 @@ internal sealed class MainForm : Form
         registerPage.SetBusy(value);
         commandPage.SetBusy(value);
         buildPage.SetBusy(value);
+        buildModes.Enabled = !value;
+        profiles.Enabled = !value;
+        upgradePage.SetBusy(value);
+        tabs.Enabled = !value;
         editAddress.Enabled = !value;
         saveAddress.Enabled = !value;
         cancelAddress.Enabled = !value;
@@ -254,7 +288,11 @@ internal sealed class MainForm : Form
         };
 
 
-        tabs.SelectedIndexChanged += delegate { SelectPage(tabs.SelectedIndex); };
+        tabs.SelectedIndexChanged += delegate
+        {
+            int page = PageOrder[tabs.SelectedIndex];
+            if (page != currentPage) { SelectPage(page); }
+        };
         profiles.Vertical = false;
         profiles.TabStop = false;
         profiles.FocusOnClick = false;
@@ -275,7 +313,7 @@ internal sealed class MainForm : Form
             octets[i] = field;
             sidebar.Controls.Add(field);
         }
-        portCaption.Text = "端口";
+        portCaption.Text = "控制器端口";
         portCaption.ForeColor = Theme.TextSecondary;
         portCaption.BackColor = Color.Transparent;
 
@@ -295,7 +333,11 @@ internal sealed class MainForm : Form
 
         adminButton.Click += delegate
         {
-            if (admin) { SetAdmin(false); }
+            if (admin)
+            {
+                try { Admin.Forget(); SetAdmin(false); }
+                catch (Exception error) { MessageBox.Show(this, "无法清除登录：" + error.Message, WindowTitle); }
+            }
             else { ShowLogin(true); }
         };
 
@@ -318,7 +360,11 @@ internal sealed class MainForm : Form
         workspace.BackColor = Theme.Body;
         workspace.Controls.Add(registerPage);
         workspace.Controls.Add(commandPage);
-        workspace.Controls.Add(buildPage);
+        remoteBuild.Visible = false;
+        buildWorkspace.Controls.AddRange(new Control[] { buildPage, remoteBuild, buildModes, remoteTarget });
+        buildModes.SelectedIndexChanged += delegate { ApplyBuildMode(); SavePreferences(); };
+        workspace.Controls.Add(buildWorkspace);
+        workspace.Controls.Add(upgradePage);
 
         tabs.BringToFront();
         Controls.Add(workspace);
@@ -386,7 +432,7 @@ internal sealed class MainForm : Form
 
         tabs.Vertical = true;
         tabs.SetBounds(Theme.S(Theme.Space3), Theme.S(Theme.Space4), width - Theme.S(Theme.Space3) * 2,
-            Theme.S(Theme.SizeLg) * 3 + Theme.S(Theme.Space1));
+            Theme.S(Theme.SizeLg) * 4 + Theme.S(Theme.Space1));
         profiles.SetBounds(pad, tabs.Bottom + Theme.S(Theme.Space5), inner, Theme.S(Theme.SizeSm));
         addressCaption.SetBounds(pad, profiles.Bottom + Theme.S(Theme.Space3), inner - Theme.S(64), captionHeight);
 
@@ -434,7 +480,14 @@ internal sealed class MainForm : Form
         workspace.SetBounds(sidebar.Width, 0, ClientSize.Width - sidebar.Width, ClientSize.Height);
         registerPage.SetBounds(0, 0, workspace.Width, workspace.Height);
         commandPage.SetBounds(0, 0, workspace.Width, workspace.Height);
-        buildPage.SetBounds(0, 0, workspace.Width, workspace.Height);
+        buildWorkspace.SetBounds(0, 0, workspace.Width, workspace.Height);
+        int buildHeader = Theme.S(50);
+        buildModes.SetBounds(pad, Theme.S(10), Theme.S(265), Theme.S(36));
+        remoteTarget.SetBounds(buildModes.Right + Theme.S(8), buildModes.Top,
+            Math.Max(0, workspace.Width - buildModes.Right - pad - Theme.S(8)), buildModes.Height);
+        buildPage.SetBounds(0, buildHeader, workspace.Width, Math.Max(0, workspace.Height - buildHeader));
+        remoteBuild.Bounds = buildPage.Bounds;
+        upgradePage.SetBounds(0, 0, workspace.Width, workspace.Height);
         Invalidate(true);
     }
     private void SelectPage(int index)
@@ -445,22 +498,59 @@ internal sealed class MainForm : Form
     private void SelectPage(int index, bool startup)
     {
         if (busy) { return; }
-        if (tabs.SelectedIndex != index) { tabs.SelectedIndex = index; }
+        int tab = Array.IndexOf(PageOrder, index);
+        currentPage = index;
+        if (tabs.SelectedIndex != tab) { tabs.SelectedIndex = tab; }
+        if (index != 2) { buildWorkspace.Visible = false; }
         registerPage.Visible = index == 0;
         commandPage.Visible = index == 1;
-        buildPage.Visible = index == 2;
+        if (index == 2)
+        {
+            ApplyBuildMode();
+            buildWorkspace.Visible = true;
+        }
+        upgradePage.Visible = index == 3;
+        if (index == 3)
+        {
+            upgradePage.RefreshAddress();
+        }
         if (!startup)
         {
             if (index == 0) { registerPage.FocusFirst(); }
             else if (index == 1) { commandPage.FocusFirst(); }
-            else { buildPage.FocusFirst(); }
+            else if (index == 2)
+            {
+                if (buildModes.SelectedIndex == 0) { buildPage.FocusFirst(); }
+                else { remoteBuild.FocusFirst(); }
+            }
+            else
+            {
+                upgradePage.FocusFirst();
+            }
+            SavePreferences();
         }
+    }
+
+    private void ApplyBuildMode()
+    {
+        bool remote = buildModes.SelectedIndex == 1;
+        remoteTarget.Visible = remote;
+        buildPage.Visible = !remote;
+        remoteBuild.Visible = remote;
+    }
+
+    private void UpdateTargets()
+    {
+        remoteTarget.Text = "Ubuntu 虚拟机 · " + profileIp[1];
+        remoteBuild.SetHost(profileIp[1]);
+        upgradePage.RefreshAddress();
     }
 
     // ---- 地址输入 -----------------------------------------------------------
     private void OnOctetChanged(object sender, EventArgs e)
     {
         if (applyingProfile) { return; }
+        upgradePage.RefreshAddress();
         for (int i = 0; i < 4; i++)
         {
             if (octets[i].Edit != sender) { continue; }
@@ -566,9 +656,17 @@ internal sealed class MainForm : Form
     {
         string ip;
         int port;
-        if (!TryGetAddress(out ip, out port)) { return; }
+        if (!ReadAddress(out ip, out port))
+        {
+            validatingAddress = true;
+            try { TryGetAddress(out ip, out port); }
+            finally { validatingAddress = false; }
+            return;
+        }
         string before = string.Join(".", savedOctets) + ":" + savedPort;
         SetAddressEditing(false);
+        SaveSettings();
+        UpdateTargets();
         if (before != ip + ":" + port) { registerPage.ClearForAddressChange(); }
     }
 
@@ -596,7 +694,11 @@ internal sealed class MainForm : Form
             TimeoutMs = int.TryParse(values.Timeout, out parsed) ? parsed : DefaultTimeout;
             EncodingName = values.Encoding;
             // 记住上一次的登录状态：登录过就一直是管理员，直到点“退出管理”。
-            SetAdmin(values.Admin);
+            currentPage = values.Page;
+            buildModes.SelectedIndex = values.BuildMode;
+            registerPage.SetPendantMode(values.VirtualPendant);
+            SetAdmin(Admin.IsRemembered());
+            UpdateTargets();
         }
         finally
         {
@@ -607,6 +709,7 @@ internal sealed class MainForm : Form
     /* 把当前档位的地址写进输入框。整体赋值时屏蔽“输满自动前进”，否则焦点会被带到最后一格并全选。 */
     private void ApplyProfile()
     {
+        addressCaption.Text = profile == 0 ? "实体控制器地址" : "Ubuntu 虚拟机地址";
         string ip = profileIp[profile] ?? "0.0.0.0";
         string[] parts = ip.Split('.');
         applyingProfile = true;
@@ -643,6 +746,7 @@ internal sealed class MainForm : Form
         {
             profile = index;
             ApplyProfile();
+            upgradePage.RefreshAddress();
             registerPage.ClearForAddressChange();
         }
         finally
@@ -668,18 +772,22 @@ internal sealed class MainForm : Form
         {
             string ip;
             int port;
-            if (!ReadAddress(out ip, out port)) { return; }
-            profileIp[profile] = ip;
-            profilePort[profile] = port.ToString(CultureInfo.InvariantCulture);
+            if (!editingAddress && ReadAddress(out ip, out port))
+            {
+                profileIp[profile] = ip;
+                profilePort[profile] = port.ToString(CultureInfo.InvariantCulture);
+            }
             var values = new AddressSettings.Values
             {
                 Ip1 = profileIp[0] ?? "192.168.2.100",
                 Port1 = profilePort[0] ?? "7625",
-                Ip2 = profileIp[1] ?? "192.168.1.200",
+                Ip2 = profileIp[1] ?? "192.168.247.130",
                 Port2 = profilePort[1] ?? "7625",
                 Timeout = timeoutMs.ToString(CultureInfo.InvariantCulture),
                 Encoding = encodingName,
-                Admin = admin,
+                Page = currentPage,
+                BuildMode = buildModes.SelectedIndex,
+                VirtualPendant = registerPage.VirtualPendant,
                 Profile = profile
             };
             AddressSettings.Save(values);
@@ -718,6 +826,8 @@ internal sealed class MainForm : Form
             passwordField.Text = "";
             ShowLogin(false);
             SetAdmin(true);
+            try { Admin.Remember(); }
+            catch (Exception error) { MessageBox.Show(this, "无法记住登录：" + error.Message, WindowTitle); }
         }
         else
         {
@@ -735,13 +845,22 @@ internal sealed class MainForm : Form
         registerPage.SetAdmin(value);
         commandPage.SetAdmin(value);
         buildPage.SetAdmin(value);
+        remoteBuild.SetAdmin(value);
+        upgradePage.RefreshAdmin();
         // 登录 / 退出管理后立刻记住状态；启动时恢复的那次不写回。
         if (built && !restoring) { SaveSettings(); }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (remoteBuild.Running)
+        {
+            e.Cancel = true;
+            return;
+        }
+        remoteBuild.StopWork();
         buildPage.StopWork();
+        upgradePage.StopWork();
         SaveSettings();
         base.OnFormClosing(e);
     }

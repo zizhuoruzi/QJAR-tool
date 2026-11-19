@@ -17,10 +17,16 @@ internal static class BuildRun
             return 2;
         }
         bool cancelTest = Array.IndexOf(args, "--cancel") >= 0;
+        bool earlyCancel = Array.IndexOf(args, "--cancel-early") >= 0;
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         BuildSettings.OverridePath = Path.Combine(Path.GetTempPath(),
             "QJAR-buildrun-" + Guid.NewGuid().ToString("N") + ".ini");
+        string testDistro = Environment.GetEnvironmentVariable("QJAR_TEST_WSL_DISTRO");
+        if (!string.IsNullOrWhiteSpace(testDistro))
+        {
+            BuildSettings.Save(string.Empty, testDistro, true);
+        }
         try
         {
             using (var form = new MainForm(2))
@@ -35,17 +41,27 @@ internal static class BuildRun
                 Console.WriteLine("工程 " + form.Build.ProjectText);
                 Console.WriteLine("版本 " + form.Build.VersionText);
                 form.Build.BuildForTest();
-                if (cancelTest)
+                var cancelClock = new System.Diagnostics.Stopwatch();
+                if (cancelTest || earlyCancel)
                 {
-                    Pump(25000);
+                    if (cancelTest && !Wait(delegate
+                    {
+                        return !form.Build.Running || form.Build.LogText.Contains("编译：make modules");
+                    }, 60000))
+                    {
+                        Console.WriteLine("FAIL 未进入编译阶段");
+                        return 1;
+                    }
                     Console.WriteLine("取消构建…");
+                    cancelClock.Start();
                     form.Build.CancelForTest();
                 }
-                if (!Wait(delegate { return !form.Build.Running; }, 900000))
+                if (!Wait(delegate { return !form.Build.Running; }, cancelTest || earlyCancel ? 12000 : 900000))
                 {
                     Console.WriteLine("FAIL 构建超时");
                     return 1;
                 }
+                cancelClock.Stop();
                 Pump(600);
                 Console.WriteLine("状态 " + form.Build.PillText);
                 string output = form.Build.OutputDirForTest;
@@ -53,10 +69,13 @@ internal static class BuildRun
                 string[] lines = form.Build.LogText.Split('\n');
                 int start = Math.Max(0, lines.Length - 12);
                 for (int i = start; i < lines.Length; i++) { Console.WriteLine(lines[i].TrimEnd('\r')); }
-                if (cancelTest)
+                if (cancelTest || earlyCancel)
                 {
-                    if (form.Build.PillText != "已取消") { return 1; }
-                    Console.WriteLine("取消检查通过");
+                    if (form.Build.PillText != "已取消" || form.Build.LogText.Contains("WSL build passed:"))
+                    {
+                        return 1;
+                    }
+                    Console.WriteLine("取消检查通过，用时 " + cancelClock.ElapsedMilliseconds + " ms");
                     form.Close();
                     return 0;
                 }

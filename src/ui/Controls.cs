@@ -551,6 +551,36 @@ internal sealed class LogView : Panel
     private readonly RichTextBox box = new RichTextBox();
     private bool hintShown;
 
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct ScrollInfo
+    {
+        internal uint Size, Mask;
+        internal int Min, Max;
+        internal uint Page;
+        internal int Position, Track;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetScrollInfo(IntPtr window, int bar, ref ScrollInfo info);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wparam, ref Point point);
+
+    private bool AtBottom()
+    {
+        if (!box.IsHandleCreated || IsEmpty) { return true; }
+        var info = new ScrollInfo { Size = 28, Mask = 7 };
+        return !GetScrollInfo(box.Handle, 1, ref info) ||
+            info.Position + Math.Max(0, (long)info.Page - 1) >= info.Max - 2;
+    }
+
+    private void ScrollToLatest()
+    {
+        if (box.IsHandleCreated && box.Visible && !IsEmpty)
+        {
+            NativeMethods.SendMessage(box.Handle, 0x0115, new IntPtr(7), IntPtr.Zero);
+        }
+    }
+
     internal LogView(string emptyHint)
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
@@ -594,6 +624,10 @@ internal sealed class LogView : Panel
 
     internal void Append(string line, Color color)
     {
+        bool follow = AtBottom();
+        var position = Point.Empty;
+        int selectedAt = box.SelectionStart, selectedLength = box.SelectionLength;
+        if (!follow) { SendMessage(box.Handle, 0x04DD, IntPtr.Zero, ref position); }
         if (hintShown) { box.Clear(); hintShown = false; }
         if (box.TextLength > 0)
         {
@@ -601,11 +635,24 @@ internal sealed class LogView : Panel
         }
         int start = box.TextLength;
         box.AppendText(line);
-        box.Select(start, line.Length);
+        box.Select(start, box.TextLength - start);
         box.SelectionColor = color;
         box.Select(box.TextLength, 0);
         box.SelectionColor = Theme.TextPrimary;
-        box.ScrollToCaret();
+        if (follow) { ScrollToLatest(); }
+        else
+        {
+            box.Select(selectedAt, selectedLength);
+            SendMessage(box.Handle, 0x04DE, IntPtr.Zero, ref position);
+        }
+    }
+
+    internal void TrimToRecentText(int maxLength)
+    {
+        if (IsEmpty || box.TextLength <= maxLength) { return; }
+        int remove = box.TextLength - maxLength;
+        box.Select(0, remove);
+        box.SelectedText = string.Empty;
     }
 
     /* 导出到用户选定的文件；空日志直接返回 false。 */
@@ -646,7 +693,9 @@ internal sealed class LogView : Panel
     {
         base.OnResize(e);
         int pad = Theme.S(Theme.Space3);
+        bool follow = AtBottom();
         box.SetBounds(pad, pad, Math.Max(Theme.S(10), Width - pad * 2), Math.Max(Theme.S(10), Height - pad * 2));
+        if (follow) { ScrollToLatest(); }
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
@@ -749,6 +798,31 @@ internal sealed class SegmentedTabs : Control
     private int selected;
     private int hovered = -1;
     private bool vertical = true;
+    private readonly Timer slide = new Timer { Interval = 15 };
+    private readonly System.Diagnostics.Stopwatch slideClock = new System.Diagnostics.Stopwatch();
+    private double slideFrom;
+    internal bool SlideSelection { get; set; }
+
+    private double SelectionPosition()
+    {
+        if (!slide.Enabled) { return selected; }
+        double t = Math.Min(1, slideClock.Elapsed.TotalMilliseconds / 260);
+        double delta = selected - slideFrom;
+        if (t < 0.72)
+        {
+            double travel = t / 0.72;
+            double reach = delta + Math.Sign(delta) * Math.Min(Math.Abs(delta) * 0.12, 0.09);
+            return slideFrom + reach * (1 - Math.Pow(1 - travel, 3));
+        }
+        double settle = (t - 0.72) / 0.28;
+        return selected + Math.Sign(delta) * Math.Min(Math.Abs(delta) * 0.12, 0.09) * Math.Pow(1 - settle, 2);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { slide.Dispose(); }
+        base.Dispose(disposing);
+    }
 
     internal SegmentedTabs(params string[] labels)
     {
@@ -760,6 +834,11 @@ internal sealed class SegmentedTabs : Control
         Height = Theme.S(Theme.SizeLg);
         Cursor = Cursors.Hand;
         AccessibleRole = AccessibleRole.PageTabList;
+        slide.Tick += delegate
+        {
+            if (slideClock.ElapsedMilliseconds >= 260) { slide.Stop(); }
+            Invalidate();
+        };
     }
 
     internal event EventHandler SelectedIndexChanged;
@@ -780,10 +859,18 @@ internal sealed class SegmentedTabs : Control
         {
             int next = Math.Max(0, Math.Min(labels.Length - 1, value));
             if (next == selected) { return; }
+            slideFrom = SelectionPosition();
+            slide.Stop();
             selected = next;
-            Invalidate();
             EventHandler handler = SelectedIndexChanged;
             if (handler != null) { handler(this, EventArgs.Empty); }
+            // 创建目标页的原生控件可能占用一帧，等切页完成再开始底板动画。
+            if (SlideSelection && vertical && IsHandleCreated && Visible && !Theme.ReduceMotion())
+            {
+                slideClock.Restart();
+                slide.Start();
+            }
+            Invalidate();
         }
     }
 
@@ -858,6 +945,13 @@ internal sealed class SegmentedTabs : Control
         Graphics g = e.Graphics;
         g.Clear(Parent != null ? Parent.BackColor : Theme.Body);
         int inset = Theme.S(2);
+        if (vertical && SlideSelection && labels.Length > 0)
+        {
+            Rectangle pill = Segment(0);
+            pill.Y = (int)Math.Round(SelectionPosition() * pill.Height);
+            pill.Inflate(-inset, -inset);
+            Theme.Fill(g, pill, Theme.S(Theme.RadiusElement), Theme.AccentMuted);
+        }
         for (int i = 0; i < labels.Length; i++)
         {
             Rectangle rect = Segment(i);
@@ -881,13 +975,21 @@ internal sealed class SegmentedTabs : Control
         Color edge = isSelected ? Theme.AccentBorder
             : index == hovered ? Theme.BorderStrong : Theme.Border;
         int radius = Theme.S(Theme.RadiusElement);
-        Theme.Fill(g, pill, radius, fill);
-        Theme.Stroke(g, pill, radius, edge, 1f);
+        if (!SlideSelection)
+        {
+            Theme.Fill(g, pill, radius, fill);
+            Theme.Stroke(g, pill, radius, edge, 1f);
+        }
+        else if (!slide.Enabled && !isSelected && index == hovered)
+        {
+            Theme.Fill(g, pill, radius, Theme.OverlayHover);
+        }
 
         int iconSize = Theme.S(16);
         var icon = new Rectangle(pill.X + Theme.S(Theme.Space3), pill.Y + (pill.Height - iconSize) / 2,
             iconSize, iconSize);
-        DrawIcon(g, icon, index, isSelected ? Theme.Accent : Theme.TextSecondary);
+        DrawIcon(g, icon, SlideSelection && index < 3 ? (index + 2) % 3 : index,
+            isSelected ? Theme.Accent : Theme.TextSecondary);
 
         var label = new Rectangle(icon.Right + Theme.S(Theme.Space2), pill.Y,
             pill.Right - icon.Right - Theme.S(Theme.Space2) - Theme.S(Theme.Space3), pill.Height);
@@ -923,7 +1025,7 @@ internal sealed class SegmentedTabs : Control
         }
     }
 
-    /* 三个内置图标：0 = 注册（方框加号），1 = 命令调试（提示符），2 = 编译（齿轮）。 */
+    /* 四个内置图标分别表示注册、命令调试、编译和升级 */
     private void DrawIcon(Graphics g, Rectangle box, int index, Color color)
     {
         var old = g.SmoothingMode;
@@ -963,6 +1065,24 @@ internal sealed class SegmentedTabs : Control
                 });
                 g.DrawLine(pen, frame.X + frame.Width / 2 + Theme.S(1), top,
                     frame.X + frame.Width / 2 - Theme.S(1), bottom);
+            }
+            else if (index == 3)
+            {
+                int center = frame.X + frame.Width / 2;
+                int top = frame.Y + Theme.S(1);
+                int bottom = frame.Bottom - Theme.S(1);
+                int arm = Math.Max(2, frame.Width / 4);
+                g.DrawLines(pen, new[]
+                {
+                    new Point(center - arm, top + arm), new Point(center, top),
+                    new Point(center + arm, top + arm)
+                });
+                g.DrawLine(pen, center, top, center, bottom - Theme.S(4));
+                g.DrawLines(pen, new[]
+                {
+                    new Point(frame.Left, bottom - Theme.S(4)), new Point(frame.Left, bottom),
+                    new Point(frame.Right, bottom), new Point(frame.Right, bottom - Theme.S(4))
+                });
             }
             else
             {
