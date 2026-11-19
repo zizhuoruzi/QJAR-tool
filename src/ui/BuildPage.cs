@@ -45,7 +45,7 @@ internal sealed class BuildPage : Panel
     private readonly Label elapsedText = Caption("");
 
     private readonly Card logCard = new Card("构建日志");
-    private readonly LogView log = new LogView("暂无记录。选择工程后点“开始构建”。");
+    private readonly LogView log = new LogView("");
     private readonly ActionButton clearLog = new ActionButton("清空", ButtonKind.Quiet);
     private readonly ActionButton exportLog = new ActionButton("导出日志", ButtonKind.Quiet);
     private readonly ActionButton openDir = new ActionButton("打开产物目录", ButtonKind.Quiet);

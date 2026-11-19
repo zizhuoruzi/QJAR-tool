@@ -801,6 +801,7 @@ internal sealed class SegmentedTabs : Control
     private readonly Timer slide = new Timer { Interval = 15 };
     private readonly System.Diagnostics.Stopwatch slideClock = new System.Diagnostics.Stopwatch();
     private double slideFrom;
+    private bool pointerFocus;
     internal bool SlideSelection { get; set; }
 
     private double SelectionPosition()
@@ -910,8 +911,10 @@ internal sealed class SegmentedTabs : Control
         int index = IndexAt(e.Location);
         if (index >= 0)
         {
+            pointerFocus = true;
             if (FocusOnClick) { Focus(); }
             SelectedIndex = index;
+            Invalidate();
         }
         base.OnMouseDown(e);
     }
@@ -933,11 +936,26 @@ internal sealed class SegmentedTabs : Control
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        pointerFocus = false;
+        Invalidate();
         if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Up) { SelectedIndex = selected - 1; e.Handled = true; }
         else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.Down) { SelectedIndex = selected + 1; e.Handled = true; }
         else if (e.KeyCode == Keys.Home) { SelectedIndex = 0; e.Handled = true; }
         else if (e.KeyCode == Keys.End) { SelectedIndex = labels.Length - 1; e.Handled = true; }
         base.OnKeyDown(e);
+    }
+
+    protected override void OnGotFocus(EventArgs e)
+    {
+        base.OnGotFocus(e);
+        Invalidate();
+    }
+
+    protected override void OnLostFocus(EventArgs e)
+    {
+        pointerFocus = false;
+        base.OnLostFocus(e);
+        Invalidate();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -961,10 +979,11 @@ internal sealed class SegmentedTabs : Control
             if (vertical) { PaintRow(g, pill, i, isSelected); continue; }
             PaintTab(g, rect, i, isSelected);
         }
-        if (Focused)
+        if (Focused && ShowFocusCues && !pointerFocus && labels.Length > 0)
         {
-            Theme.Stroke(g, new Rectangle(0, 0, Width - 1, Height - 1), Theme.S(Theme.RadiusElement),
-                Theme.Accent, Math.Max(1f, 2f * Theme.Scale));
+            Rectangle focus = Segment(selected);
+            focus.Inflate(-Theme.S(3), -Theme.S(3));
+            Theme.Stroke(g, focus, Theme.S(Theme.RadiusElement), Theme.Accent, 1f);
         }
     }
 

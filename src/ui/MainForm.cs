@@ -16,7 +16,6 @@ internal sealed class MainForm : Form
     private readonly Panel workspace = new Panel();
     private readonly SegmentedTabs tabs = new SegmentedTabs("编译", "注册", "命令调试", "升级") { SlideSelection = true };
     private readonly SegmentedTabs profiles = new SegmentedTabs("实体控制器", "Ubuntu 虚拟机");
-    private readonly Label addressCaption = new Label();
     private readonly TextField[] octets = new TextField[4];
     private readonly int[] dotLeft = new int[3];
     private int dotTop;
@@ -43,7 +42,6 @@ internal sealed class MainForm : Form
     private readonly RemoteBuildPage remoteBuild;
     private readonly Panel buildWorkspace = new Panel { BackColor = Theme.Body };
     private readonly SegmentedTabs buildModes = new SegmentedTabs("本机 WSL", "Ubuntu 远程") { Vertical = false };
-    private readonly Label remoteTarget = new Label { ForeColor = Theme.TextSecondary, TextAlign = ContentAlignment.MiddleRight };
     private int currentPage = 2;
     private readonly UpgradePage upgradePage;
 
@@ -298,16 +296,13 @@ internal sealed class MainForm : Form
         profiles.FocusOnClick = false;
         profiles.SelectedIndexChanged += delegate { SwitchProfile(profiles.SelectedIndex); };
 
-        addressCaption.Text = "控制器地址";
-        addressCaption.ForeColor = Theme.TextSecondary;
-        addressCaption.BackColor = Color.Transparent;
-
         for (int i = 0; i < 4; i++)
         {
             var field = new TextField(i == 0 ? "IP" : "");
             field.InnerPad = Theme.Space2;
             field.MaxLength = 3;
             field.Edit.TextAlign = HorizontalAlignment.Center;
+            field.Edit.AccessibleName = "IP 地址第 " + (i + 1) + " 段";
             field.Edit.TextChanged += OnOctetChanged;
             field.Edit.KeyDown += OnOctetKeyDown;
             octets[i] = field;
@@ -353,7 +348,7 @@ internal sealed class MainForm : Form
 
         sidebar.Controls.AddRange(new Control[]
         {
-            tabs, profiles, addressCaption, portCaption, portField, editAddress, saveAddress, cancelAddress,
+            tabs, profiles, portCaption, portField, editAddress, saveAddress, cancelAddress,
             adminButton, passwordField, passwordOk, passwordCancel
         });
 
@@ -361,7 +356,7 @@ internal sealed class MainForm : Form
         workspace.Controls.Add(registerPage);
         workspace.Controls.Add(commandPage);
         remoteBuild.Visible = false;
-        buildWorkspace.Controls.AddRange(new Control[] { buildPage, remoteBuild, buildModes, remoteTarget });
+        buildWorkspace.Controls.AddRange(new Control[] { buildPage, remoteBuild, buildModes });
         buildModes.SelectedIndexChanged += delegate { ApplyBuildMode(); SavePreferences(); };
         workspace.Controls.Add(buildWorkspace);
         workspace.Controls.Add(upgradePage);
@@ -379,7 +374,6 @@ internal sealed class MainForm : Form
 
     private void ApplyFonts()
     {
-        addressCaption.Font = Theme.Caption12;
         portCaption.Font = Theme.Caption12;
     }
 
@@ -434,11 +428,10 @@ internal sealed class MainForm : Form
         tabs.SetBounds(Theme.S(Theme.Space3), Theme.S(Theme.Space4), width - Theme.S(Theme.Space3) * 2,
             Theme.S(Theme.SizeLg) * 4 + Theme.S(Theme.Space1));
         profiles.SetBounds(pad, tabs.Bottom + Theme.S(Theme.Space5), inner, Theme.S(Theme.SizeSm));
-        addressCaption.SetBounds(pad, profiles.Bottom + Theme.S(Theme.Space3), inner - Theme.S(64), captionHeight);
 
         int octetWidth = Theme.S(54);
         int dotWidth = Theme.S(8);
-        int top = addressCaption.Bottom + Theme.S(Theme.Space3);
+        int top = profiles.Bottom + Theme.S(Theme.Space3);
         int x = pad;
         dotTop = top;
         for (int i = 0; i < 4; i++)
@@ -454,14 +447,11 @@ internal sealed class MainForm : Form
         portCaption.SetBounds(pad, octets[0].Bottom + Theme.S(Theme.Space3), inner, captionHeight);
         portField.SetBounds(pad, portCaption.Bottom, inner, Theme.S(Theme.SizeMd));
 
-        // 地址行右侧的“修改 / 保存 / 取消”，高 28（size-element-sm）。
         int small = Theme.S(Theme.SizeSm);
         int editWidth = Theme.S(52);
-        int smallTop = addressCaption.Top + (captionHeight - small) / 2 - Theme.S(2);
-        editAddress.SetBounds(width - pad - editWidth, smallTop, editWidth, small);
 
-        // 保存 / 取消放在端口下方，避免和标题行挤在一起。
         int actionTop = portField.Bottom + Theme.S(Theme.Space2);
+        editAddress.SetBounds(width - pad - editWidth, actionTop, editWidth, small);
         int saveWidth = Theme.S(72);
         int cancelWidth = Theme.S(60);
         saveAddress.SetBounds(width - pad - saveWidth, actionTop, saveWidth, small);
@@ -483,8 +473,6 @@ internal sealed class MainForm : Form
         buildWorkspace.SetBounds(0, 0, workspace.Width, workspace.Height);
         int buildHeader = Theme.S(50);
         buildModes.SetBounds(pad, Theme.S(10), Theme.S(265), Theme.S(36));
-        remoteTarget.SetBounds(buildModes.Right + Theme.S(8), buildModes.Top,
-            Math.Max(0, workspace.Width - buildModes.Right - pad - Theme.S(8)), buildModes.Height);
         buildPage.SetBounds(0, buildHeader, workspace.Width, Math.Max(0, workspace.Height - buildHeader));
         remoteBuild.Bounds = buildPage.Bounds;
         upgradePage.SetBounds(0, 0, workspace.Width, workspace.Height);
@@ -534,14 +522,12 @@ internal sealed class MainForm : Form
     private void ApplyBuildMode()
     {
         bool remote = buildModes.SelectedIndex == 1;
-        remoteTarget.Visible = remote;
         buildPage.Visible = !remote;
         remoteBuild.Visible = remote;
     }
 
     private void UpdateTargets()
     {
-        remoteTarget.Text = "Ubuntu 虚拟机 · " + profileIp[1];
         remoteBuild.SetHost(profileIp[1]);
         upgradePage.RefreshAddress();
     }
@@ -709,7 +695,6 @@ internal sealed class MainForm : Form
     /* 把当前档位的地址写进输入框。整体赋值时屏蔽“输满自动前进”，否则焦点会被带到最后一格并全选。 */
     private void ApplyProfile()
     {
-        addressCaption.Text = profile == 0 ? "实体控制器地址" : "Ubuntu 虚拟机地址";
         string ip = profileIp[profile] ?? "0.0.0.0";
         string[] parts = ip.Split('.');
         applyingProfile = true;

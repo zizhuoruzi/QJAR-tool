@@ -31,7 +31,7 @@ internal sealed class RegisterPage : Panel
     private readonly Label progressPercent = Caption("0%");
     private readonly Banner banner = new Banner();
     private readonly Card logCard = new Card("操作日志");
-    private readonly LogView log = new LogView("暂无记录。点击“查询状态”开始。");
+    private readonly LogView log = new LogView("");
     private readonly ActionButton exportLog = new ActionButton("导出日志", ButtonKind.Quiet);
     private readonly ActionButton clearLog = new ActionButton("清空", ButtonKind.Quiet);
 

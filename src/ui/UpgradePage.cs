@@ -20,7 +20,7 @@ internal sealed class UpgradePage : Panel
     private readonly ActionButton uploadPendant = new ActionButton("升级示教器", ButtonKind.Primary);
 
     private readonly Card logCard = new Card("升级日志");
-    private readonly LogView log = new LogView("选择升级包后，点击对应的升级按钮。");
+    private readonly LogView log = new LogView("");
     private readonly ActionButton exportLog = new ActionButton("导出日志", ButtonKind.Quiet);
     private readonly ActionButton clearLog = new ActionButton("清空", ButtonKind.Quiet);
     private readonly StatusPill state = new StatusPill();

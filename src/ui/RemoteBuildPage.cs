@@ -27,15 +27,15 @@ internal sealed class RemoteBuildPage : Panel
     private readonly ActionButton createProject = new ActionButton("新建文件夹", ButtonKind.Secondary);
     private readonly ActionButton compile = new ActionButton("编译", ButtonKind.Primary);
     private readonly Label versionCaption = new Label { Text = "版本号", AutoSize = true };
-    private readonly TextField version = new TextField("选择源码目录后可修改版本号");
-    private readonly Label installedVersion = new Label { Text = "已部署版本：请选择项目", AutoEllipsis = true };
+    private readonly TextField version = new TextField("");
+    private readonly Label installedVersion = new Label { AutoEllipsis = true };
     private readonly CheckBox packageAfter = new CheckBox { Text = "编译后打包", AutoSize = true };
     private readonly CheckBox packageOnly = new CheckBox { Text = "仅打包", AutoSize = true };
     private readonly CheckBox startAfter = new CheckBox { Text = "编译后启动", AutoSize = true };
     private readonly ActionButton startExisting = new ActionButton("启动已有虚拟版", ButtonKind.Secondary);
     private readonly Label status = new Label();
     private readonly Card logCard = new Card("编译日志");
-    private readonly LogView log = new LogView("暂无编译记录。");
+    private readonly LogView log = new LogView("");
     private readonly ActionButton export = new ActionButton("导出日志", ButtonKind.Quiet);
     private readonly Card outputCard = new Card("构建产物");
     private readonly Label packageName = new Label { AutoEllipsis = true, ForeColor = Theme.TextSecondary, TextAlign = ContentAlignment.MiddleLeft };
@@ -94,15 +94,13 @@ internal sealed class RemoteBuildPage : Panel
         {
             source.Text = packageOnly.Checked ? (packageDirectory ?? sourceRoot ?? DefaultSource) : SourceDisplayPath;
             source.Invalid = false;
-            SetStatus(packageOnly.Checked ? "打包所选 Ubuntu 项目的已有版本，路径框为 Windows 保存目录。"
-                : "请选择源码目录、Ubuntu 项目和轴类型。");
+            SetStatus("");
             UpdateButtons();
         };
         startExisting.Click += async delegate { await StartExisting(); };
         version.Edit.TextChanged += delegate { version.Invalid = false; };
         browse.Click += delegate { Browse(); };
         export.Click += delegate { log.SaveTo(this, "QJAR-编译日志-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt"); };
-        packageName.Text = "暂无升级包";
         browsePackage.Enabled = upgradePackage.Enabled = false;
         browsePackage.Click += delegate { BrowseCompletedPackage(); };
         upgradePackage.Click += delegate
@@ -245,7 +243,7 @@ internal sealed class RemoteBuildPage : Panel
         selectedProject = null;
         matchedProject = null;
         projectSelectedManually = false;
-        installedVersion.Text = "已部署版本：请选择项目";
+        installedVersion.Text = "";
         UpdateButtons();
     }
 
@@ -257,8 +255,7 @@ internal sealed class RemoteBuildPage : Panel
         selectedProject = choice;
         projectSelectedManually = manual;
         UpdateButtons();
-        string message = (manual ? "已选择 " : "已匹配 ") + choice;
-        SetStatus(admin ? message : message + "，请登录管理员后编译。");
+        SetStatus("");
         LoadInstalledVersion(choice);
     }
 
@@ -372,7 +369,7 @@ internal sealed class RemoteBuildPage : Panel
                 packageDirectory = dialog.SelectedPath;
                 source.Text = packageDirectory;
                 source.Invalid = false;
-                SetStatus("已选择更新包保存目录。");
+                SetStatus("");
             }
             else { TrySelectSource(dialog.SelectedPath); }
         }
@@ -392,7 +389,7 @@ internal sealed class RemoteBuildPage : Panel
         try
         {
             AddressSettings.SaveBuildSource(SourceDisplayPath);
-            if (selectedProject == null) { SetStatus("未匹配 Ubuntu 目录，可在列表加载后新建。"); }
+            if (selectedProject == null) { SetStatus(""); }
         }
         catch (IOException) { SetStatus("已选择源码目录，本次路径保存失败。", true); }
         catch (UnauthorizedAccessException) { SetStatus("已选择源码目录，本次路径保存失败。", true); }
@@ -465,11 +462,7 @@ internal sealed class RemoteBuildPage : Panel
             this.projects.Items.AddRange(projects.Select(name => new ProjectChoice(name)).ToArray());
             projectsLoaded = true;
             SelectMatchedProject(previousSelection);
-            if (selectedProject == null)
-            {
-                SetStatus(sourceRoot == null ? "请先选择 Windows 源码目录。"
-                    : "未匹配 Ubuntu 目录，请点「新建文件夹」。");
-            }
+            if (selectedProject == null) { SetStatus(""); }
         });
         if (host != requestedHost) { LoadVisibleProjects(); }
     }

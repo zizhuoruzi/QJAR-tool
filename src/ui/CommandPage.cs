@@ -15,7 +15,7 @@ internal sealed class CommandPage : Panel
     private readonly ActionButton encoding = new ActionButton("编码：UTF-8", ButtonKind.Secondary);
     private readonly TextField timeoutField = new TextField("超时 ms");
     private readonly Card logCard = new Card("收发记录");
-    private readonly LogView log = new LogView("暂无记录。输入命令后点“发送命令”。");
+    private readonly LogView log = new LogView("");
     private readonly ActionButton clear = new ActionButton("清空", ButtonKind.Quiet);
     private readonly ActionButton export = new ActionButton("导出日志", ButtonKind.Quiet);
 
